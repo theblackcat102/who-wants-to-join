@@ -23,9 +23,9 @@ def parse_date(date_str):
 
 TOKENS = {
     'UNK': 0,
-    'EOS': 2,
-    'PAD': 1,
-    'BOS': 0,
+    'EOS': 1,
+    'PAD': 2,
+    'BOS': 3,
 }
 
 '''
@@ -200,10 +200,10 @@ class Meetupv1(Dataset):
         else:
             with open(os.path.join('.cache', cache_name), 'rb') as f:
                 (self.data, self.group2tag, self.user2group, self.event2user, self.user2tag, self.group2user) = pickle.load(f)
-
-        self.df.sort_values(by='date')
+        self.df = self.data
         if query == 'group':
             self.df = self.data.drop_duplicates(['group'])
+        self.df.sort_values(by='date')
 
 
         self.sample_rate = sample_ratio
@@ -229,7 +229,7 @@ class Meetupv1(Dataset):
         print('group size', max_group[:10])
 
         max_group = []
-        for key, value in self.group2tag.items():
+        for key, value in self.group2user.items():
             # max_group.append(len(value))
             max_group += value
         max_group.sort(reverse=True)
@@ -300,14 +300,14 @@ class Meetupv1(Dataset):
 if __name__ == "__main__":
 
 
-    dataset = Meetupv2(train=False, sample_ratio=0.5, query='group', max_size=600)
-    print(len(dataset))
-    dataset = Meetupv2(train=True, sample_ratio=0.5, query='group', max_size=600)
-    print(len(dataset))
-    print(dataset.get_stats())
+    test = Meetupv1(train=False, sample_ratio=0.5, query='group', max_size=600)
+    print(len(test))
+    train = Meetupv1(train=True, sample_ratio=0.5, query='group', max_size=600)
+    print('total: ', len(test)+len(train))
+    print(train.get_stats())
 
-    data = DataLoader(dataset, batch_size=16, num_workers=8)
-    print(len(dataset.group2user))
+    # data = DataLoader(dataset, batch_size=16, num_workers=8)
+    # print(len(dataset.group2user))
 
     # print('data size', len(dataset))
     # for batch in tqdm(data):

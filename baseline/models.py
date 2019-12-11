@@ -29,7 +29,8 @@ class EncoderRNN(nn.Module):
         self.hidden_size = hidden_size
         print('embedding_size ', input_size)
         print('embedding_dim ', hidden_size)
-        self.embedding = FactorizedEmbeddings(input_size, hidden_size, hidden_size//2)
+        # self.embedding = FactorizedEmbeddings(input_size, hidden_size, hidden_size//2)
+        self.embedding = nn.Embedding(input_size, hidden_size)
         self.gru = nn.GRU(hidden_size, hidden_size, dropout=0.1)
 
     def forward(self, input, hidden):
@@ -104,7 +105,7 @@ class Seq2Seq(nn.Module):
     
 
     def forward(self, input_tensor, target_tensor, tag_tensor, criterion, device, max_length=MAX_LENGTH, 
-        teacher_forcing_ratio=0.5):
+        teacher_forcing_ratio=0.5, mapper=None):
         T, B = input_tensor.shape
         
         _encoder_hidden = self.encoder.initHidden(device=device)

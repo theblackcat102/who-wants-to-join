@@ -85,7 +85,7 @@ class Baseline(pl.LightningModule):
         tags = tags.transpose(0, 1)
         
         loss, norm_loss, _ = self.model(existing_users, pred_users,tags, self.criterion, 
-            teacher_forcing_ratio=0.8, device='cuda')
+            teacher_forcing_ratio=0.3, device='cuda')
         
         tensorboard_logs = {'loss/train': loss.item(), 'norm_loss/train': norm_loss}
         return {'loss': loss, 'log': tensorboard_logs}
@@ -98,7 +98,7 @@ class Baseline(pl.LightningModule):
 
         
         loss, norm_loss, decoder_outputs = self.model(existing_users, pred_users,tags, self.criterion, 
-            teacher_forcing_ratio=1.0, device='cuda')
+            teacher_forcing_ratio=self.hparams.teach_ratio, device='cuda')
 
         argmax = torch.argmax(decoder_outputs, dim=-1)
         invalid_targets = pred_users.eq(TOKENS['PAD'])
@@ -136,7 +136,7 @@ class Baseline(pl.LightningModule):
         # self.dist_sampler = torch.utils.data.distributed.DistributedSampler(self.dataset)
         return DataLoader(self.dataset, 
             # sampler=self.dist_sampler, 
-            batch_size=self.hparams.batch_size, num_workers=10, shuffle=True)
+            batch_size=self.hparams.batch_size, num_workers=4, shuffle=True)
 
     @pl.data_loader
     def val_dataloader(self):
@@ -156,8 +156,9 @@ if __name__ == "__main__":
     parser.add_argument('--min-epochs', type=int, default=20)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--clip-grad', type=float, default=1.0)
-    parser.add_argument('--sample_ratio', type=float, default=0.8)
+    parser.add_argument('--sample-ratio', type=float, default=0.8)
     parser.add_argument('--max-group', type=int, default=50)
+    parser.add_argument('--teach-ratio', type=float, default=0.8)
     parser.add_argument('--batch-size', type=int, default=16)
     parser.add_argument('--gpu', type=int, default=0)
 

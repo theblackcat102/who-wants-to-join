@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import argparse
-from .dataset import Meetupv1, TOKENS
+from .dataset import Meetupv1, Meetupv2, TOKENS
 from .models import Seq2Seq
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
@@ -14,17 +14,17 @@ from torch.nn.utils import clip_grad_norm
 
 
 if __name__ == "__main__":
-    restore_path = 'lightning_logs/version_3/checkpoints/_ckpt_epoch_4.ckpt'
+    restore_path = 'lightning_logs/version_5/checkpoints/_ckpt_epoch_17.ckpt'
     checkpoint = torch.load(restore_path)
     model = Seq2Seq(
-            hidden_size=128,
-            user_size=46895,
+        user_size=1087928,
+        hidden_size=30,
         )
     model.load_state_dict({ key[6:] : value for key, value in checkpoint['state_dict'].items()})
  
     top_k = 10
     model.cuda()
-    dataset = Meetupv1(train=False, sample_ratio=0.8, max_size=500, query='group')
+    dataset = Meetupv2(train=False, sample_ratio=0.8, max_size=700, query='group')
     dataloader = DataLoader(dataset, 
             # sampler=self.dist_sampler, 
             batch_size=1, num_workers=1, shuffle=False)
@@ -32,6 +32,8 @@ if __name__ == "__main__":
     criterion = nn.CrossEntropyLoss(ignore_index=TOKENS['PAD'])
     device = 'cuda'
     stats = []
+    match_score = []
+    pred_cnt = []
     with torch.no_grad():
         for batch in dataloader:
             existing_users, pred_users, pred_users_cnt, tags = batch
@@ -53,8 +55,8 @@ if __name__ == "__main__":
             _, decoder_outputs_idx = torch.topk(decoder_outputs, k=top_k, dim=-1)
             # print(decoder_outputs_idx.shape)
             # decoder_outputs = torch.argmax(decoder_outputs, dim=2)
-            decoder_outputs = decoder_outputs.transpose(0, 1)
-            pred_users = pred_users.transpose(0, 1)
+            # decoder_outputs = decoder_outputs.transpose(0, 1)
+            # pred_users = pred_users.transpose(0, 1)
 
             decoder_outputs = decoder_outputs_idx.cpu().numpy()
             pred_users = pred_users.cpu().numpy()
@@ -67,10 +69,13 @@ if __name__ == "__main__":
                     if token in pred_users:
                         acc += 1
             print(total_users)
+            pred_cnt.append(pred_users_cnt.sum().item())
+            match_score.append(acc)
             stats.append(acc / pred_users_cnt.sum().item())
 
             print(decoder_outputs[:20])
             print(pred_users[:total_users+2])
+            print(np.sum(match_score)/np.sum(pred_cnt), stats[-1])
 
     print(stats)
     print(np.mean(stats))
