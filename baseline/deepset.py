@@ -14,9 +14,19 @@ from .dataset import Meetupv1, Meetupv2, TOKENS
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
-# 46899
-USER_MAX_SIZE = 1087928
-GROUP_SIZE = 10000
+
+dataset_stats = {
+    'meetup_v1': {
+       'user_size': 46899,
+       'group_size': 40,
+    },
+    'meetup_v2': {
+       'user_size': 1087928,
+       'group_size': 20000,
+    }
+}
+
+
 
 class Deepset(nn.Module):
 
@@ -26,19 +36,22 @@ class Deepset(nn.Module):
         # self.tag_embedding = nn.Embedding(tag_size, 30)
 
         self.extractor = nn.Sequential(
-            nn.Linear(hidden_size, 50),
+            nn.Linear(hidden_size, 64),
             nn.ELU(inplace=True),
-            nn.Linear(50, 30),
+            nn.Dropout(0.2),
+            nn.Linear(64, 32),
             nn.ELU(inplace=True),
-            nn.Linear(30, set_features)
+            nn.Linear(32, set_features)
         )
 
         self.regressor = nn.Sequential(
             nn.Linear(set_features, 128),
             nn.ELU(inplace=True),
-            nn.Linear(128, 64),
+            nn.Dropout(0.2),
+            nn.Linear(128, 256),
             nn.ELU(inplace=True),
-            nn.Linear(64, user_size),
+            nn.Linear(256, user_size),
+            nn.Sigmoid(),
         )
 
     def forward(self, users):
@@ -51,11 +64,14 @@ class Model(pl.LightningModule):
     def __init__(self, args):
         super(Model, self).__init__()
         self.hparams = args
-        self.user_size=1087928
+        self.user_size=dataset_stats[self.hparams.dataset]['user_size']
         hidden_size=32
         set_features=512
         tag_size=966
         self.model = Deepset(self.user_size, hidden_size, set_features)
+        pos_weight = torch.ones([self.user_size])
+        pos_weight[:4] = 0.0
+        # self.l2 = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
         self.l2 = nn.MSELoss()
 
 
@@ -109,29 +125,31 @@ class Model(pl.LightningModule):
 
     @pl.data_loader
     def train_dataloader(self):
-        self.dataset = Meetupv2(train=True, 
-            sample_ratio=self.hparams.sample_ratio, max_size=GROUP_SIZE, query=self.hparams.query)
-        # self.dist_sampler = torch.utils.data.distributed.DistributedSampler(self.dataset)
+        group_size = dataset_stats[self.hparams.dataset]['group_size']
+        self.dataset = Meetupv1(train=True, 
+            sample_ratio=self.hparams.sample_ratio, max_size=group_size, query=self.hparams.query)
         return DataLoader(self.dataset, 
             # sampler=self.dist_sampler, 
             batch_size=self.hparams.batch_size, num_workers=4, shuffle=True)
 
     @pl.data_loader
     def val_dataloader(self):
-        self.dataset = Meetupv2(train=False, 
-            sample_ratio=self.hparams.sample_ratio, max_size=GROUP_SIZE, query=self.hparams.query)
-        # self.dist_sampler = torch.utils.data.distributed.DistributedSampler(self.dataset)
+        group_size = dataset_stats[self.hparams.dataset]['group_size']
+        self.dataset = Meetupv1(train=True, 
+            sample_ratio=self.hparams.sample_ratio, max_size=group_size, query=self.hparams.query)
         return DataLoader(self.dataset, 
             # sampler=self.dist_sampler, 
             batch_size=8, num_workers=8)
 
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='MoSAN Group Recommendation Model')
-    parser.add_argument('--dataset', type=str, default='meetup')
+    parser = argparse.ArgumentParser(description='Deepset Recommendation Model')
+    parser.add_argument('--dataset', type=str, default='meetup_v1')
     parser.add_argument('--query', type=str, default='group')
+    parser.add_argument('--task', type=str, default='train')
     parser.add_argument('--model', type=str, default='deepset')
     parser.add_argument('--user-dim', type=int, default=50)
+    parser.add_argument('--feature-dim', type=int, default=512)
     parser.add_argument('--max-epochs', type=int, default=40)
     parser.add_argument('--min-epochs', type=int, default=20)
     parser.add_argument('--lr', type=float, default=1e-3)
@@ -141,8 +159,61 @@ if __name__ == "__main__":
     parser.add_argument('--gpu', type=int, default=0)
 
     args = parser.parse_args()
-    model = Model(args)
+    if args.task == 'train':
+        model = Model(args)
 
-    trainer = pl.Trainer(max_nb_epochs=args.max_epochs,min_nb_epochs=args.min_epochs, train_percent_check=1.0, 
-        gpus=[args.gpu])
-    trainer.fit(model)
+        trainer = pl.Trainer(max_nb_epochs=args.max_epochs,min_nb_epochs=args.min_epochs, train_percent_check=1.0, 
+            gpus=[args.gpu])
+        trainer.fit(model)
+    else:
+        restore_path = 'lightning_logs/version_1/checkpoints/_ckpt_epoch_1.ckpt'
+        checkpoint = torch.load(restore_path)
+        model = Deepset(user_size=dataset_stats[args.dataset]['user_size'], hidden_size=32, set_features=512)
+        model = model.cuda()
+        model.eval()
+
+        model.load_state_dict({ key[6:] : value for key, value in checkpoint['state_dict'].items()})
+        dataset = Meetupv1(train=False, 
+            sample_ratio=args.sample_ratio, max_size=dataset_stats[args.dataset]['group_size'], 
+            query=args.query)
+
+        val_iter = DataLoader(dataset, batch_size=8, num_workers=8)
+        matched = 0
+        group_size = 0
+        y_onehot = torch.FloatTensor(8, dataset_stats[args.dataset]['user_size'])
+        for batch in val_iter:
+            existing_users, target_users, target_users_cnt, _ = batch        
+            existing_users = existing_users.cuda()
+            target_users = target_users.cuda()
+
+            y_onehot.zero_()
+            y_onehot = y_onehot.to(target_users.device)
+            y_onehot.scatter_(1, target_users, 1)
+            # print(existing_users, target_users)
+
+            pred_users = torch.sigmoid(model(existing_users))
+            # print(y_onehot[0].sum(), pred_users[0][:100])
+
+            '''
+                [ 0.1 0.9 ]
+                [ 1 ]
+            '''
+            target_users = target_users.cpu()
+            pred_users = pred_users.cpu()
+
+            user_size = pred_users.shape[-1]
+
+            for idx in range(len(pred_users)):
+                # print(pred_users[idx])
+                match_idx = pred_users[idx] > 0.5
+                user_idx = torch.arange(0, user_size )[ match_idx ].to(target_users.device)
+                if len(user_idx) == 0:
+                    continue
+                intersection = np.intersect1d(user_idx.numpy(), 
+                target_users[idx].numpy())
+
+                matched += (intersection != 1).sum()
+                group_size += target_users_cnt[idx]
+                print(intersection, len(user_idx))
+
+        print(matched/group_size)

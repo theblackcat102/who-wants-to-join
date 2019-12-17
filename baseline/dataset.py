@@ -214,7 +214,6 @@ class Meetupv1(Dataset):
         self.train = train
         if query == 'event':
             self.positive_sample = self.event2user
-        
         self.data = []
         for key, _ in self.positive_sample.items():
             self.data.append(key)
@@ -270,11 +269,9 @@ class Meetupv1(Dataset):
             if u in pred_users:
                 pred_users.remove(u)
 
-        pred_users += [-1]
         if len(pred_users) > self.max_size:
             pred_users = pred_users
             pred_users = pred_users[:self.max_size-1]
-            pred_users += [-1] # eos
 
         pred_users_cnt = len(pred_users)-1
         pred_users += [-2]*(self.max_size - len(pred_users))
