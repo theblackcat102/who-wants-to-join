@@ -12,36 +12,6 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from torch.nn.utils import clip_grad_norm
 
 
-class Skipgram(nn.Module):
-    def __init__(self, user_size=46895, user_dim=32):
-        super(Skipgram, self).__init__()
-        self.u_embeddings = nn.Embedding(user_size, user_dim)   
-        self.v_embeddings = nn.Embedding(user_size+3, user_dim) 
-        self.user_dim = user_dim
-        self.init_emb()
-
-    def init_emb(self):
-        initrange = 0.5 / self.user_dim
-        self.u_embeddings.weight.data.uniform_(-initrange, initrange)
-        self.v_embeddings.weight.data.uniform_(-0, 0)
-
-    def forward(self, u_pos, v_pos, batch_size=32):
-        embed_u = self.u_embeddings(u_pos)
-        embed_v = self.v_embeddings(v_pos)
-
-        score  = torch.mul(embed_u, embed_v)
-        score = torch.sum(score, dim=1)
-        log_target = F.logsigmoid(score).squeeze()
-
-        # neg_embed_v = self.v_embeddings(v_neg)
-
-        # neg_score = torch.bmm(neg_embed_v, embed_u.unsqueeze(2)).squeeze()
-        # neg_score = torch.sum(neg_score, dim=1)
-        # sum_log_sampled = F.logsigmoid(-1*neg_score).squeeze()
-
-        loss = log_target# + sum_log_sampled
-
-        return -1*loss.sum()/batch_size
 
 class BoW(nn.Module):
     def __init__(self, user_dim=32, user_size=46895):
@@ -71,8 +41,12 @@ class Baseline(pl.LightningModule):
         self.hparams = args
         self.max_group = args.max_group
         self.criterion = nn.CrossEntropyLoss(ignore_index=TOKENS['PAD'])
+        self.train_dataset = Meetupv2(train=True, 
+            sample_ratio=self.hparams.sample_ratio, max_size=self.max_group, city=args.city,
+             query=self.hparams.query)
+        stats = self.train_dataset.get_stats()
         self.model = Seq2Seq(
-            user_size=1087928,
+            user_size=stats['member']+3,
             hidden_size=args.user_dim,
         )
         # self.skip_gram = Skipgram()
@@ -131,17 +105,15 @@ class Baseline(pl.LightningModule):
 
     @pl.data_loader
     def train_dataloader(self):
-        self.dataset = Meetupv2(train=True, 
-            sample_ratio=self.hparams.sample_ratio, max_size=self.max_group, query=self.hparams.query)
         # self.dist_sampler = torch.utils.data.distributed.DistributedSampler(self.dataset)
-        return DataLoader(self.dataset, 
+        return DataLoader(self.train_dataset, 
             # sampler=self.dist_sampler, 
             batch_size=self.hparams.batch_size, num_workers=4, shuffle=True)
 
     @pl.data_loader
     def val_dataloader(self):
         self.dataset = Meetupv2(train=False, 
-            sample_ratio=self.hparams.sample_ratio, max_size=self.max_group, query=self.hparams.query)
+            sample_ratio=self.hparams.sample_ratio, city=args.city, max_size=self.max_group, query=self.hparams.query)
         # self.dist_sampler = torch.utils.data.distributed.DistributedSampler(self.dataset)
         return DataLoader(self.dataset, 
             # sampler=self.dist_sampler, 
@@ -151,13 +123,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='MoSAN Group Recommendation Model')
     parser.add_argument('--dataset', type=str, default='meetup')
     parser.add_argument('--query', type=str, default='group')
-    parser.add_argument('--user-dim', type=int, default=50)
+    parser.add_argument('--user-dim', type=int, default=64)
     parser.add_argument('--max-epochs', type=int, default=40)
     parser.add_argument('--min-epochs', type=int, default=20)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--clip-grad', type=float, default=1.0)
-    parser.add_argument('--sample-ratio', type=float, default=0.8)
+    parser.add_argument('--sample-ratio', type=float, default=0.8, 
+        help='number of users in group selected for input and the rest for prediction')
     parser.add_argument('--max-group', type=int, default=50)
+    parser.add_argument('--city', type=str, default='nyc', choices=['nyc', 'sf', 'chicago'])
     parser.add_argument('--teach-ratio', type=float, default=0.8)
     parser.add_argument('--batch-size', type=int, default=16)
     parser.add_argument('--gpu', type=int, default=0)

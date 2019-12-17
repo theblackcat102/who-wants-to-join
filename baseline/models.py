@@ -163,6 +163,38 @@ class Seq2Seq(nn.Module):
 
 
 
+class Skipgram(nn.Module):
+    def __init__(self, user_size=46895, user_dim=32):
+        super(Skipgram, self).__init__()
+        self.u_embeddings = nn.Embedding(user_size, user_dim)   
+        self.v_embeddings = nn.Embedding(user_size+3, user_dim) 
+        self.user_dim = user_dim
+        self.init_emb()
+
+    def init_emb(self):
+        initrange = 0.5 / self.user_dim
+        self.u_embeddings.weight.data.uniform_(-initrange, initrange)
+        self.v_embeddings.weight.data.uniform_(-0, 0)
+
+    def forward(self, u_pos, v_pos, batch_size=32):
+        embed_u = self.u_embeddings(u_pos)
+        embed_v = self.v_embeddings(v_pos)
+
+        score  = torch.mul(embed_u, embed_v)
+        score = torch.sum(score, dim=1)
+        log_target = F.logsigmoid(score).squeeze()
+
+        # neg_embed_v = self.v_embeddings(v_neg)
+
+        # neg_score = torch.bmm(neg_embed_v, embed_u.unsqueeze(2)).squeeze()
+        # neg_score = torch.sum(neg_score, dim=1)
+        # sum_log_sampled = F.logsigmoid(-1*neg_score).squeeze()
+
+        loss = log_target# + sum_log_sampled
+
+        return -1*loss.sum()/batch_size
+
+
 if __name__ == "__main__":
     model = Seq2Seq(hidden_size=128, user_size=46895)
     inputs = torch.randint(0, 46895,(50, 24))

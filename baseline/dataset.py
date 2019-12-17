@@ -14,6 +14,7 @@ from torch.utils.data import Dataset, DataLoader
 from torch.autograd import Variable
 import pickle
 import random
+from collections import Counter
 from .utils import format_token, extract_relation, create_inv_map
 from copy import deepcopy
 os.makedirs('.cache', exist_ok=True)
@@ -28,6 +29,11 @@ TOKENS = {
     'BOS': 3,
 }
 
+city_map = {
+    'chicago': ['Chicago', 'Chicago Heights', 'Chicago Park', 'Chicago Ridge','East Chicago','West Chicago'],
+    'nyc': ['New York','New York Mills','West New York'],
+    'sf': ['san francisco','San Francisco','South San Francisco']
+}
 '''
     EOS : 2
     PAD : 1
@@ -55,15 +61,28 @@ def create_mapping(df, id_key):
 
 class Meetupv2(Dataset):
 
-    def __init__(self, datapath='./meetup_v2', split_ratio=0.8, sample_ratio=0.5, train=True, query='group', pred_size=100, max_size=5000):
+    def __init__(self, datapath='./meetup_v2', split_ratio=0.8, sample_ratio=0.5, 
+        train=True, query='group', pred_size=100, max_size=5000, min_freq=5, city='nyc'):
+        if city not in city_map:
+            raise ValueError("Invalid city name")
         self.query = query
-        cache_path = os.path.join('.cache',self.query+ '_query_meetup_v2_data_cache.pkl')
+        train_str = 'train_' if train else 'test_'
+        cache_path = os.path.join('.cache', self.query+'_freq'+str(min_freq) + '_'+city+'_meetup_v2.1_data_cache.pkl')
+
         if not os.path.exists(cache_path):
             group = pd.read_csv(os.path.join(datapath, 'groups.csv'))
             group['created'] = pd.to_datetime(group['created'], format="%Y-%m-%d %H:%M:%S")
             group.sort_values(by='created')
 
             members = pd.read_csv(os.path.join(datapath, 'members.csv'), encoding='latin-1')
+            member_frequency_ = Counter(members['member_id'].to_list())
+            valid_member = []
+            for m, frequency in member_frequency_.items():
+                if frequency > min_freq:
+                    valid_member.append(m)
+            members = members[ members['member_id'].isin(valid_member) ]
+            members = members[ members['city'].isin(city_map[city]) ]
+
             group_topics = pd.read_csv(os.path.join(datapath, 'groups_topics.csv'), encoding='latin-1')
             print('create group2tag')
             self.group2tag = create_relation(group_topics, 'topic_id', 'group_id')
@@ -75,7 +94,6 @@ class Meetupv2(Dataset):
             self.group_map = create_mapping(members, 'group_id')
             print('create group2user')
             self.group2user = create_relation(members, 'member_id', 'group_id')
-
             self.data = group
             cache_data = (self.data, self.group2tag, self.group2user, self.group_map, self.member_map, self.topic_map)
             with open(cache_path, 'wb') as f:
@@ -115,7 +133,6 @@ class Meetupv2(Dataset):
         select_rate = self.sample_rate
 
         existing_users = random.choices(available_user, k=int(select_rate*len(available_user)))
-
         # print(len(available_user), len(existing_users))
         interaction = []
         context_users = []
@@ -127,6 +144,8 @@ class Meetupv2(Dataset):
             if u in pred_users:
                 pred_users.remove(u)
 
+        random.shuffle(existing_users)
+        random.shuffle(pred_users)
         pred_users += ['EOS']
         if len(pred_users) > self.max_size:
             pred_users = pred_users
@@ -297,9 +316,9 @@ class Meetupv1(Dataset):
 if __name__ == "__main__":
 
 
-    test = Meetupv1(train=False, sample_ratio=0.5, query='group', max_size=600)
+    test = Meetupv2(train=False, sample_ratio=0.5, query='group', max_size=600, city='chicago')
     print(len(test))
-    train = Meetupv1(train=True, sample_ratio=0.5, query='group', max_size=600)
+    train = Meetupv2(train=True, sample_ratio=0.5, query='group', max_size=600, city='chicago')
     print('total: ', len(test)+len(train))
     print(train.get_stats())
 
