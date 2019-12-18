@@ -211,6 +211,7 @@ class Seq2Seq(nn.Module):
         self.embed_dropout = nn.Dropout(0.1)
         attn = None
         if use_attn:
+            print('Use Attention')
             attn = LuongAttention(encoder_hidden_size=hidden_size, decoder_hidden_size=hidden_size)
         self.decoder = Decoder(embed_size, vocab_size, hidden_size, dec_num_layers, dropout=dropout, 
             st_mode=st_mode, cell=nn.LSTM, attention=attn)

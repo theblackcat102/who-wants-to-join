@@ -12,25 +12,15 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 from torch.nn.utils import clip_grad_norm
 from .utils import IgnoreLogger, binary_matrix
 
-
-class BoW(nn.Module):
-    def __init__(self, user_dim=32, user_size=46895):
-        super(BoW, self).__init__()
-        self.user_embed = nn.Embedding(user_size+1, user_dim, padding_idx=0, sparse=True)
-        self.pool = nn.AdaptiveAvgPool1d(1)
-        self.pred = nn.Sequential(
-            nn.BatchNorm1d(user_dim),
-            nn.ReLU(),
-            nn.Linear(user_dim, 256),
-            nn.ReLU(),
-            nn.Linear(256, user_size+1),
-        )
-
-    def forward(self, exist_user):
-        users_latent = self.user_embed(exist_user)
-        # print(users_latent.shape)
-        h = self.pool(users_latent.transpose(1, 2))
-        return self.pred(h.squeeze(2))
+def str2bool(v):
+    if isinstance(v, bool):
+       return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 
 class Baseline(pl.LightningModule):
@@ -52,6 +42,7 @@ class Baseline(pl.LightningModule):
             enc_num_layers=args.enc_layer,
             dec_num_layers=args.dec_layer,dropout=0.1,
             st_mode=False,
+            use_attn=args.attn,
         )
         # self.skip_gram = Skipgram()
 
@@ -130,6 +121,7 @@ if __name__ == "__main__":
     parser.add_argument('--min-epochs', type=int, default=30)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--clip-grad', type=float, default=1.0)
+    parser.add_argument('--attn', type=str2bool, default=False, help='use attention')
     parser.add_argument('--sample-ratio', type=float, default=0.8, 
         help='number of users in group selected for input and the rest for prediction')
     parser.add_argument('--max-group', type=int, default=500)

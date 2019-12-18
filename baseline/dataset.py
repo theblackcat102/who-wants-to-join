@@ -335,9 +335,10 @@ if __name__ == "__main__":
         embed_size=32,
         vocab_size=stats['member']+3,
         hidden_size=64,
-        enc_num_layers=1,
-        dec_num_layers=1,dropout=0.1,
+        enc_num_layers=2,
+        dec_num_layers=2,dropout=0.1,
         st_mode=False,
+        use_attn=True
     )
     data = DataLoader(train, batch_size=16, num_workers=8)
     for batch in data:
