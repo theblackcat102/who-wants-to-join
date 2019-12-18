@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .dataset import TOKENS
 import random
+from .utils import gumbel_softmax, softmax
 
 MAX_LENGTH = 203
 
@@ -23,181 +24,230 @@ class FactorizedEmbeddings(nn.Module):
         return self.norm(e)
 
 
-class EncoderRNN(nn.Module):
-    def __init__(self, input_size, hidden_size=128):
-        super(EncoderRNN, self).__init__()
-        self.hidden_size = hidden_size
-        print('embedding_size ', input_size)
-        print('embedding_dim ', hidden_size)
-        # self.embedding = FactorizedEmbeddings(input_size, hidden_size, hidden_size//2)
-        self.embedding = nn.Embedding(input_size, hidden_size)
-        self.gru = nn.GRU(hidden_size, hidden_size, dropout=0.1)
+class GaussianNoise(nn.Module):
+    """Gaussian noise regularizer.
+    Args:
+        sigma (float, optional): relative standard deviation used to generate
+            the noise. Relative means that it will be multiplied by the
+            magnitude of the value your are adding the noise to. This means
+            that sigma can be the same regardless of the scale of the vector.
+        is_relative_detach (bool, optional): whether to detach the variable
+            before computing the scale of the noise. If `False` then the scale
+            of the noise won't be seen as a constant but something to optimize:
+            this will bias the network to generate vectors with smaller values.
+    """
 
-    def forward(self, input, hidden):
-        T, B = input.shape
-        embedded = self.embedding(input)
-        output = embedded
-
-        hidden = hidden.repeat(1, B, 1)
-        output, hidden = self.gru(output, hidden)
-        return output, hidden
-
-    def initHidden(self, device):
-        return torch.zeros(1, 1, self.hidden_size, device=device)
-
-
-class DecoderRNN(nn.Module):
-    def __init__(self, hidden_size, output_size, embedding=None):
-        super(DecoderRNN, self).__init__()
-        self.hidden_size = hidden_size
-
-        if embedding is None:
-            self.embedding = nn.Embedding(output_size, hidden_size)
-        else:
-            self.embedding = embedding
-        print('embedding_size ', output_size)
-        print('embedding_dim ', hidden_size)
-        self.gru = nn.GRU(hidden_size, hidden_size, dropout=0.1)
-        self.out = nn.Linear(hidden_size, output_size)
-
-    def forward(self, input, hidden):
-
-        output = self.embedding(input)
-        output = F.relu(output)
-
-        output, hidden = self.gru(output, hidden)
-        output = self.out(output[0])
-
-        return output, hidden
-
-    def initHidden(self, device):
-        return torch.zeros(1, 1, self.hidden_size, device=device)
-
-class LayerNorm(nn.Module):
-    "A layernorm module in the TF style (epsilon inside the square root)."
-    def __init__(self, hidden, variance_epsilon=1e-12):
-        super(LayerNorm, self).__init__()
-        self.gamma = nn.Parameter(torch.ones(hidden))
-        self.beta  = nn.Parameter(torch.zeros(hidden))
-        self.variance_epsilon = variance_epsilon
+    def __init__(self, sigma=0.1, is_relative_detach=True):
+        super().__init__()
+        self.sigma = sigma
+        self.is_relative_detach = is_relative_detach
+        self.noise = torch.tensor(0)
 
     def forward(self, x):
-        u = x.mean(-1, keepdim=True)
-        s = (x - u).pow(2).mean(-1, keepdim=True)
-        x = (x - u) / torch.sqrt(s + self.variance_epsilon)
-        return self.gamma * x + self.beta
+        if self.training and self.sigma != 0:
+            if torch.cuda.is_available():
+                self.noise = self.noise.cuda()
+            if self.is_relative_detach:
+                scale = self.sigma * x.detach()
+            else:
+                scale = self.sigma * x
+            sampled_noise = \
+                self.noise.repeat(*x.size()).float().normal_() * scale
+            x = x + sampled_noise
+            del sampled_noise
+        return x
+
+
+class Encoder(nn.Module):
+    """A general Encoder, keep it as general as possible."""
+    def __init__(self, inputs_size, hidden_size, num_layers, dropout,
+                 bidirectional, cell):
+        super(Encoder, self).__init__()
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.bidirectional = bidirectional
+        # self.noise_layer = GaussianNoise(sigma=0.1)
+        self.rnn = cell(
+            inputs_size, hidden_size,
+            num_layers=num_layers,
+            dropout=(0 if num_layers == 1 else dropout),
+            bidirectional=bidirectional,
+            batch_first=True)
+
+    def forward(self, inputs, hidden=None):
+        """
+        Args:
+            inputs: int tensor, shape = [B x T x inputs_size]
+            hidden: float tensor,
+                shape = shape = [num_layers * num_directions x B x hidden_size]
+            is_discrete: boolean, if False, inputs shape is
+                [B x T x vocab_size]
+        Returns:
+            outputs: float tensor, shape = [B x T x (hidden_size x dir_num)]
+            hidden: float tensorf, shape = [B x (hidden_size x dir_num)]
+        """
+
+        outputs, hidden = self.rnn(inputs, hidden)
+        if isinstance(hidden, tuple):
+            hidden = hidden[0]
+
+        if self.bidirectional or self.num_layers > 0:
+            outputs = outputs.view(-1, outputs.size(1), 2, self.hidden_size)
+            hidden = torch.mean(hidden, axis=0).unsqueeze(0)
+            outputs = outputs[:, :, 0] + outputs[:, :, 1]
+        return outputs, hidden
+
+
+class Decoder(nn.Module):
+    """A general Decoder, keep it as general as possible."""
+    def __init__(self, inputs_size, vocab_size, hidden_size,
+                 num_layers, dropout, st_mode, cell, attention=None):
+        super(Decoder, self).__init__()
+
+        self.attention = attention
+        self.hidden_size = hidden_size
+        self.num_layers = num_layers
+        self.st_mode = st_mode
+
+        self.rnn = cell(
+            inputs_size, hidden_size,
+            num_layers=num_layers,
+            dropout=(0 if num_layers == 1 else dropout),
+            batch_first=True)
+        if attention is not None:
+            self.outputs2vocab = nn.Linear(hidden_size * 2, vocab_size)
+        else:
+            self.outputs2vocab = nn.Linear(hidden_size, vocab_size)
+
+    def forward(self, inputs, hidden, encoder_outputs=None, temperature=1):
+        """
+        Args:
+            inputs: float tensor, shape = [B x T x inputs_size]
+            hidden: float tensor, shape = [num_layers x B x H]
+            encoder_outputs: float tensor, shape = [B x Tin x H]
+            temperature: float, gumbel softmax
+        Returns:
+            outputs: float tesor, shape = [B x T x vocab_size], probability
+            hidden: float tensor, shape = [num_layers, B x H]
+        """
+        # print('decoder input')
+        # print(inputs[0, -3:, :5])
+        if self.num_layers > 0:
+            hidden = hidden.repeat(self.num_layers, 1, 1)
+        if isinstance(self.rnn, nn.LSTM):
+            hidden = (hidden, hidden)
+        outputs, hidden = self.rnn(inputs, hidden)
+        if self.attention is not None:
+            outputs, attn_weight = self.attention(outputs, encoder_outputs)
+        outputs = self.outputs2vocab(outputs)
+        if self.training:
+            outputs = softmax(outputs, temperature, st_mode=self.st_mode)
+        else:
+            outputs = softmax(outputs, temperature=1, st_mode=False)
+        return outputs, hidden
+
+
+class LuongAttention(nn.Module):
+    """Implementation of Luong Attention
+    reference:
+        Effective Approaches to Attention-based Neural Machine Translation
+        Minh-Thang Luong, Hieu Pham, Christopher D. Manning
+        https://arxiv.org/abs/1508.04025
+    """
+    def __init__(self, encoder_hidden_size, decoder_hidden_size, score='dot'):
+        super(LuongAttention, self).__init__()
+        self.softmax = nn.Softmax(dim=-1)
+        self.score = score
+        if score == 'dot':
+            assert(encoder_hidden_size == decoder_hidden_size)
+        elif score == 'general':
+            self.linear = nn.Linear(decoder_hidden_size, encoder_hidden_size)
+        else:
+            assert(False)
+
+    def compute_energy(self, decoder_outputs, encoder_outputs):
+        if self.score == 'dot':
+            # [B x Tou x H_decoder] x [B x Tin x H_encoder] -> [B x Tou x Tin]
+            attn_weight = torch.bmm(
+                decoder_outputs, encoder_outputs.transpose(1, 2))
+        if self.score == 'general':
+            # [B x Tou x H_encoder]
+            decoder_outputs = self.linear(decoder_outputs)
+            # [B x Tou x H_decoder] x [B x Tin x H_encoder] -> [B x Tou x Tin]
+            attn_weight = torch.bmm(
+                decoder_outputs, encoder_outputs.transpose(1, 2))
+        return attn_weight
+
+    def forward(self, decoder_outputs, encoder_outputs):
+        """Support batch operation.
+        Output size of encoder and decoder must be equal.
+        Args:
+            decoder_outputs: float tensor, shape = [B x Tou x H_decoder]
+            encoder_outputs: float tensor, shape = [B x Tin x H_encoder]
+        Returns:
+            output: float tensor, shape = [B x Tou x (2 x H_decoder)]
+            attn_weight: float tensor, shape = [B x Tou x Tin]
+        """
+        attn_weight = self.compute_energy(decoder_outputs, encoder_outputs)
+        attn_weight = self.softmax(attn_weight)
+        # [B x Tou x Tin] * [B x Tin x H] -> [B, Tou, H]
+        attn_encoder_outputs = torch.bmm(attn_weight, encoder_outputs)
+        # concat [B x Tou x H], [B x Tou x H] -> [B x Tou x (2 x H)]
+        output = torch.cat([decoder_outputs, attn_encoder_outputs], dim=-1)
+
+        return output, attn_weight
 
 
 
 class Seq2Seq(nn.Module):
-    def __init__(self, user_size, hidden_size, tag_size=966):
+    def __init__(self, embed_size, vocab_size, hidden_size,
+                 enc_num_layers, dec_num_layers, dropout, st_mode, 
+                 enc_cell=nn.LSTM, dec_cell=nn.LSTM, 
+                 enc_bidirect=True, use_attn=True
+                 ):
         super(Seq2Seq, self).__init__()
-        self.encoder = EncoderRNN(user_size+3, hidden_size)
-        self.tag_enc = EncoderRNN(tag_size, hidden_size)
+        self.encoder = Encoder(embed_size, hidden_size, enc_num_layers, dropout, bidirectional=enc_bidirect, cell=nn.LSTM)
+        self.embedding = nn.Embedding(vocab_size, embed_size)
+        self.embed_dropout = nn.Dropout(0.1)
+        attn = None
+        if use_attn:
+            attn = LuongAttention(encoder_hidden_size=hidden_size, decoder_hidden_size=hidden_size)
+        self.decoder = Decoder(embed_size, vocab_size, hidden_size, dec_num_layers, dropout=dropout, 
+            st_mode=st_mode, cell=nn.LSTM, attention=attn)
 
-        self.proj = nn.Sequential(
-            nn.Dropout(0.4),
-            # nn.BatchNorm1d(hidden_size*2),
-            nn.Linear(hidden_size*2, hidden_size)
-        )
-
-        self.decoder = DecoderRNN(hidden_size, user_size+3, embedding=self.encoder.embedding)
-    
-
-    def forward(self, input_tensor, target_tensor, tag_tensor, criterion, device, max_length=MAX_LENGTH, 
-        teacher_forcing_ratio=0.5, mapper=None):
-        T, B = input_tensor.shape
-        
-        _encoder_hidden = self.encoder.initHidden(device=device)
-
-        input_length = input_tensor.size(0)
-        target_length = target_tensor.size(0)
-        encoder_outputs = torch.zeros(max_length, self.encoder.hidden_size, device=device)
-
-        decoder_loss = 0
-        encoder_output, encoder_hidden = self.encoder( input_tensor, _encoder_hidden)
-        
-        _, tag_hidden = self.tag_enc(tag_tensor, _encoder_hidden)
-        # print(tag_hidden.shape, encoder_hidden.shape)
-
-        merged_hidden = torch.cat((tag_hidden, encoder_hidden), dim=2)
-        # print(merged_hidden.shape)
-        merged_hidden = self.proj(merged_hidden)
-        # print(merged_hidden.shape)
-        decoder_input = torch.tensor([[TOKENS['BOS']]*B], device=device)
-        decoder_hidden = merged_hidden#[:, [0], :]
-
-        decoder_outputs = []
-
-        use_teacher_forcing = True if teacher_forcing_ratio > random.random() else False
-        if self.training is False:
-            use_teacher_forcing = False
-
-        if use_teacher_forcing:
-            # Teacher forcing: Feed the target as the next input
-            for di in range(target_length):
-                decoder_output, decoder_hidden = self.decoder(
-                    decoder_input, decoder_hidden)
-                decoder_loss += criterion(decoder_output, target_tensor[di])
-                decoder_input = target_tensor[[di], :]  # Teacher forcing
-                decoder_outputs.append(decoder_output.unsqueeze(0))
-        else:
-            # Without teacher forcing: use its own predictions as the next input
-            for di in range(target_length):
-                if len(decoder_input.shape) < 2:
-                    decoder_input = decoder_input.unsqueeze(0)
-                # print(decoder_input.shape, decoder_hidden.shape)
-                decoder_output, decoder_hidden = self.decoder(
-                    decoder_input, decoder_hidden)
-                topv, topi = decoder_output.topk(1)
-                decoder_input = topi.detach().transpose(0, 1)  # detach from history as input
-                # print(decoder_input.shape, decoder_hidden.shape)
-                decoder_loss += criterion(decoder_output, target_tensor[di])
-                decoder_outputs.append(decoder_output.unsqueeze(0))
-
-                if B == 1 and decoder_input[0].item() == TOKENS['EOS']:
-                    break
-        # print(decoder_outputs[0].shape)
-        decoder_outputs = torch.stack(decoder_outputs, dim=0)
-        return decoder_loss, decoder_loss.item() / target_length, decoder_outputs
-
-
-
-class Skipgram(nn.Module):
-    def __init__(self, user_size=46895, user_dim=32):
-        super(Skipgram, self).__init__()
-        self.u_embeddings = nn.Embedding(user_size, user_dim)   
-        self.v_embeddings = nn.Embedding(user_size+3, user_dim) 
-        self.user_dim = user_dim
-        self.init_emb()
-
-    def init_emb(self):
-        initrange = 0.5 / self.user_dim
-        self.u_embeddings.weight.data.uniform_(-initrange, initrange)
-        self.v_embeddings.weight.data.uniform_(-0, 0)
-
-    def forward(self, u_pos, v_pos, batch_size=32):
-        embed_u = self.u_embeddings(u_pos)
-        embed_v = self.v_embeddings(v_pos)
-
-        score  = torch.mul(embed_u, embed_v)
-        score = torch.sum(score, dim=1)
-        log_target = F.logsigmoid(score).squeeze()
-
-        # neg_embed_v = self.v_embeddings(v_neg)
-
-        # neg_score = torch.bmm(neg_embed_v, embed_u.unsqueeze(2)).squeeze()
-        # neg_score = torch.sum(neg_score, dim=1)
-        # sum_log_sampled = F.logsigmoid(-1*neg_score).squeeze()
-
-        loss = log_target# + sum_log_sampled
-
-        return -1*loss.sum()/batch_size
+    def forward(self, inputs, labels, temperature=1):
+        embed = self.embedding(inputs)
+        embed = self.embed_dropout(embed)
+        output_embed = self.embedding(labels)
+        latent, hidden = self.encoder(embed)
+        outputs, d_h = self.decoder(output_embed[:, :-1, :], hidden, 
+            encoder_outputs=latent, temperature=temperature)
+        return outputs, d_h, hidden
 
 
 if __name__ == "__main__":
-    model = Seq2Seq(hidden_size=128, user_size=46895)
-    inputs = torch.randint(0, 46895,(50, 24))
-    outputs = torch.randint(0, 46895,(50, 24))
-    criterion = nn.CrossEntropyLoss()
-    loss, norm_loss = model(inputs, outputs, criterion, device='cpu', use_teacher_forcing=False)
+    encoder = Encoder(128, 128, 2, 0.1, bidirectional=True, cell=nn.LSTM)
+    embedding = nn.Embedding(46895, 128)
+    attn = LuongAttention(encoder_hidden_size=128, decoder_hidden_size=128)
+    decoder = Decoder(128, 46895, 128, 2, dropout=0.1, 
+        st_mode=False, cell=nn.LSTM, attention=attn)
+
+    inputs = torch.randint(0, 46895,(50, 24)) # B x T
+    labels = torch.randint(0, 46895,(50, 24)) # B x T
+
+    criterion = nn.NLLLoss()
+
+    embed = embedding(inputs)
+    output_embed = embedding(labels)
+
+    latent, hidden = encoder(embed)
+    print('encoder input') # include EOS
+    print(output_embed[0, -3:, :5])
+    outputs, d_h = decoder(output_embed[:, :-1, :], hidden, encoder_outputs=latent)
+    loss = 0
+
+    seq_length = outputs.shape[1]
+    for t in range(seq_length):
+        loss += criterion(torch.log(outputs[:, t, :]), labels[:,t+1], )
+    # loss.backward()
+    print(loss)

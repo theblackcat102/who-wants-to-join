@@ -40,48 +40,48 @@ class Baseline(pl.LightningModule):
         # not the best model...
         self.hparams = args
         self.max_group = args.max_group
-        self.criterion = nn.CrossEntropyLoss(ignore_index=TOKENS['PAD'])
+        self.criterion = nn.NLLLoss(ignore_index=TOKENS['PAD'])
         self.train_dataset = Meetupv2(train=True, 
             sample_ratio=self.hparams.sample_ratio, max_size=self.max_group, city=args.city,
              query=self.hparams.query)
         stats = self.train_dataset.get_stats()
         self.model = Seq2Seq(
-            user_size=stats['member']+3,
-            hidden_size=args.user_dim,
+            embed_size=args.user_dim,
+            vocab_size=stats['member']+3,
+            hidden_size=128,
+            enc_num_layers=1,
+            dec_num_layers=1,dropout=0.1,
+            st_mode=False,
         )
         # self.skip_gram = Skipgram()
 
     def training_step(self, batch, batch_idx):
-        # REQUIRED
         existing_users, pred_users, pred_users_cnt, tags = batch
-        existing_users = existing_users.transpose(0, 1)
-        pred_users = pred_users.transpose(0, 1)
-        tags = tags.transpose(0, 1)
         
-        loss, norm_loss, _ = self.model(existing_users, pred_users,tags, self.criterion, 
-            teacher_forcing_ratio=0.3, device='cuda')
-        
-        tensorboard_logs = {'loss/train': loss.item(), 'norm_loss/train': norm_loss}
+        decoder_outputs, d_h, hidden = self.model(existing_users, pred_users)
+        seq_length = decoder_outputs.shape[1]
+        loss = 0
+        for t in range(seq_length):
+            loss += self.criterion(torch.log(decoder_outputs[:, t, :]), pred_users[:,t+1], )
+        norm_loss = loss/existing_users.shape[0]
+        tensorboard_logs = {'loss/train': loss.item(), 'norm_loss/train': norm_loss.item()}
         return {'loss': loss, 'log': tensorboard_logs}
 
     def validation_step(self, batch, batch_idx):
         existing_users, pred_users, pred_users_cnt, tags = batch
-        existing_users = existing_users.transpose(0, 1)
-        pred_users = pred_users.transpose(0, 1)
-        tags = tags.transpose(0, 1)
-
         
-        loss, norm_loss, decoder_outputs = self.model(existing_users, pred_users,tags, self.criterion, 
-            teacher_forcing_ratio=self.hparams.teach_ratio, device='cuda')
-
+        decoder_outputs, d_h, hidden = self.model(existing_users, pred_users)
+        seq_length = decoder_outputs.shape[1]
+        loss = 0
+        for t in range(seq_length):
+            loss += self.criterion(torch.log(decoder_outputs[:, t, :]), pred_users[:,t+1], )
+        norm_loss = loss/existing_users.shape[0]
         argmax = torch.argmax(decoder_outputs, dim=-1)
-        invalid_targets = pred_users.eq(TOKENS['PAD'])
-        accuracy = argmax.eq(pred_users).masked_fill_(invalid_targets, 0)\
+        invalid_targets = pred_users[:, 1:].eq(TOKENS['PAD'])
+        accuracy = argmax.eq(pred_users[:, 1:]).masked_fill_(invalid_targets, 0)\
             .float().sum()/pred_users_cnt.sum()
 
-        # print(decoder_outputs.shape)
-
-        return {'val_loss': loss, 'accuracy': accuracy, 'norm_loss': norm_loss}
+        return {'val_loss': loss, 'accuracy': accuracy, 'norm_loss': norm_loss.item()}
 
     def validation_end(self, outputs):
         # OPTIONAL

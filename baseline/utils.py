@@ -1,5 +1,6 @@
 
 from collections import defaultdict
+import torch
 from pytorch_lightning.logging import LightningLoggerBase, rank_zero_only
 
 class IgnoreLogger(LightningLoggerBase):
@@ -48,3 +49,49 @@ def create_inv_map(relationgraph):
             if key not in relation_event[v]:
                 relation_event[v].append(key)
     return relation_event
+
+
+def straight_through_estimate(p):
+    shape = p.size()
+    ind = p.argmax(dim=-1)
+    p_hard = torch.zeros_like(p).view(-1, shape[-1])
+    p_hard.scatter_(1, ind.view(-1, 1), 1)
+    p_hard = p_hard.view(*shape)
+    return ((p_hard - p).detach() + p)
+
+
+def sample_gumbel(shape, eps=1e-20):
+    u = torch.rand(shape)
+    if torch.cuda.is_available():
+        u = u.cuda()
+    return -torch.log(-torch.log(u + eps) + eps)
+
+
+def gumbel_softmax(logits, temperature, st_mode=False):
+    """
+    Gumble Softmax
+    Args:
+        logits: float tensor, shape = [*, n_class]
+        temperature: float
+        st_mode: boolean, Straight Through mode
+    Returns:
+        return: gumbel softmax, shape = [*, n_class]
+    """
+    logits = logits + sample_gumbel(logits.size())
+    return softmax(logits, temperature, st_mode)
+
+
+def softmax(logits, temperature=1, st_mode=False):
+    """
+    Softmax
+    Args:
+        logits: float tensor, shape = [*, n_class]
+        st_mode: boolean, Straight Through mode
+    Returns:
+        return: gumbel softmax, shape = [*, n_class]
+    """
+    y = torch.nn.functional.softmax(logits, dim=-1)
+    if st_mode:
+        return straight_through_estimate(y)
+    else:
+        return y
