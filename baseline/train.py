@@ -10,7 +10,7 @@ import pytorch_lightning as pl
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
 from torch.nn.utils import clip_grad_norm
-
+from .utils import IgnoreLogger
 
 
 class BoW(nn.Module):
@@ -113,7 +113,7 @@ class Baseline(pl.LightningModule):
     @pl.data_loader
     def val_dataloader(self):
         self.dataset = Meetupv2(train=False, 
-            sample_ratio=self.hparams.sample_ratio, city=args.city, max_size=self.max_group, query=self.hparams.query)
+            sample_ratio=self.hparams.sample_ratio, city=self.hparams.city, max_size=self.max_group, query=self.hparams.query)
         # self.dist_sampler = torch.utils.data.distributed.DistributedSampler(self.dataset)
         return DataLoader(self.dataset, 
             # sampler=self.dist_sampler, 
@@ -124,20 +124,22 @@ if __name__ == "__main__":
     parser.add_argument('--dataset', type=str, default='meetup')
     parser.add_argument('--query', type=str, default='group')
     parser.add_argument('--user-dim', type=int, default=64)
-    parser.add_argument('--max-epochs', type=int, default=40)
-    parser.add_argument('--min-epochs', type=int, default=20)
+    parser.add_argument('--max-epochs', type=int, default=50)
+    parser.add_argument('--min-epochs', type=int, default=30)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--clip-grad', type=float, default=1.0)
     parser.add_argument('--sample-ratio', type=float, default=0.8, 
         help='number of users in group selected for input and the rest for prediction')
-    parser.add_argument('--max-group', type=int, default=50)
+    parser.add_argument('--max-group', type=int, default=120)
     parser.add_argument('--city', type=str, default='nyc', choices=['nyc', 'sf', 'chicago'])
-    parser.add_argument('--teach-ratio', type=float, default=0.8)
-    parser.add_argument('--batch-size', type=int, default=16)
+    parser.add_argument('--teach-ratio', type=float, default=0)
+    parser.add_argument('--batch-size', type=int, default=8)
     parser.add_argument('--gpu', type=int, default=0)
 
     args = parser.parse_args()
     model = Baseline(args)
     trainer = pl.Trainer(max_nb_epochs=args.max_epochs,min_nb_epochs=args.min_epochs, train_percent_check=1.0, 
-        gpus=[args.gpu], gradient_clip_val=args.clip_grad)
+        gpus=[args.gpu], gradient_clip_val=args.clip_grad, 
+        # logger=IgnoreLogger,
+        )
     trainer.fit(model)
