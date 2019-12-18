@@ -10,7 +10,7 @@ import pytorch_lightning as pl
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
 from torch.nn.utils import clip_grad_norm
-from .utils import IgnoreLogger
+from .utils import IgnoreLogger, binary_matrix
 
 
 class BoW(nn.Module):
@@ -48,28 +48,27 @@ class Baseline(pl.LightningModule):
         self.model = Seq2Seq(
             embed_size=args.user_dim,
             vocab_size=stats['member']+3,
-            hidden_size=128,
-            enc_num_layers=1,
-            dec_num_layers=1,dropout=0.1,
+            hidden_size=args.hidden,
+            enc_num_layers=args.enc_layer,
+            dec_num_layers=args.dec_layer,dropout=0.1,
             st_mode=False,
         )
         # self.skip_gram = Skipgram()
 
     def training_step(self, batch, batch_idx):
         existing_users, pred_users, pred_users_cnt, tags = batch
-        
+
         decoder_outputs, d_h, hidden = self.model(existing_users, pred_users)
         seq_length = decoder_outputs.shape[1]
         loss = 0
         for t in range(seq_length):
-            loss += self.criterion(torch.log(decoder_outputs[:, t, :]), pred_users[:,t+1], )
+            loss += self.criterion(torch.log(decoder_outputs[:, t, :]), pred_users[:,t+1])
         norm_loss = loss/existing_users.shape[0]
         tensorboard_logs = {'loss/train': loss.item(), 'norm_loss/train': norm_loss.item()}
         return {'loss': loss, 'log': tensorboard_logs}
 
     def validation_step(self, batch, batch_idx):
         existing_users, pred_users, pred_users_cnt, tags = batch
-        
         decoder_outputs, d_h, hidden = self.model(existing_users, pred_users)
         seq_length = decoder_outputs.shape[1]
         loss = 0
@@ -124,15 +123,17 @@ if __name__ == "__main__":
     parser.add_argument('--dataset', type=str, default='meetup')
     parser.add_argument('--query', type=str, default='group')
     parser.add_argument('--user-dim', type=int, default=64)
+    parser.add_argument('--hidden', type=int, default=128)
+    parser.add_argument('--enc-layer', type=int, default=1)
+    parser.add_argument('--dec-layer', type=int, default=1)
     parser.add_argument('--max-epochs', type=int, default=50)
     parser.add_argument('--min-epochs', type=int, default=30)
     parser.add_argument('--lr', type=float, default=1e-3)
     parser.add_argument('--clip-grad', type=float, default=1.0)
     parser.add_argument('--sample-ratio', type=float, default=0.8, 
         help='number of users in group selected for input and the rest for prediction')
-    parser.add_argument('--max-group', type=int, default=120)
+    parser.add_argument('--max-group', type=int, default=500)
     parser.add_argument('--city', type=str, default='nyc', choices=['nyc', 'sf', 'chicago'])
-    parser.add_argument('--teach-ratio', type=float, default=0)
     parser.add_argument('--batch-size', type=int, default=8)
     parser.add_argument('--gpu', type=int, default=0)
 

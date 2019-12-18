@@ -95,3 +95,13 @@ def softmax(logits, temperature=1, st_mode=False):
         return straight_through_estimate(y)
     else:
         return y
+
+def binary_matrix(seq, pad_token=1):
+    # 將targets裡非pad部分標記為1，pad部分標記為0
+    m = []
+    for token in seq:
+        if token == pad_token:
+            m.append(0)
+        else:
+            m.append(1)
+    return m

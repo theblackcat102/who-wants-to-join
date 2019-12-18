@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .dataset import TOKENS
 import random
-from .utils import gumbel_softmax, softmax
+from .utils import gumbel_softmax, softmax, binary_matrix
 
 MAX_LENGTH = 203
 
@@ -232,10 +232,11 @@ if __name__ == "__main__":
     decoder = Decoder(128, 46895, 128, 2, dropout=0.1, 
         st_mode=False, cell=nn.LSTM, attention=attn)
 
-    inputs = torch.randint(0, 46895,(50, 24)) # B x T
-    labels = torch.randint(0, 46895,(50, 24)) # B x T
+    inputs = torch.randint(0, 46895,(50, 64)) # B x T
+    labels = torch.randint(0, 46895,(50, 100)) # B x T
+    labels[:, 3:] = TOKENS['PAD']
 
-    criterion = nn.NLLLoss()
+    criterion = nn.NLLLoss(reduction='mean', ignore_index=TOKENS['PAD'])
 
     embed = embedding(inputs)
     output_embed = embedding(labels)

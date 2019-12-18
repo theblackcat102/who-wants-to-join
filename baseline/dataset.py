@@ -95,16 +95,17 @@ class Meetupv2(Dataset):
             print('create group2user')
             self.group2user = create_relation(members, 'member_id', 'group_id')
             self.data = group
-            cache_data = (self.data, self.group2tag, self.group2user, self.group_map, self.member_map, self.topic_map)
+            self.keys = list(self.group2user.keys())
+            random.shuffle(self.keys)
+            cache_data = (self.data, self.group2tag, self.group2user, self.group_map, self.member_map, self.topic_map, self.keys)
             with open(cache_path, 'wb') as f:
                 pickle.dump(cache_data, f)
         else:
             with open(cache_path, 'rb') as f:
-                (self.data, self.group2tag, self.group2user, self.group_map, self.member_map, self.topic_map) = pickle.load(f)
+                (self.data, self.group2tag, self.group2user, self.group_map, self.member_map, self.topic_map, self.keys) = pickle.load(f)
 
         self.sample_rate = sample_ratio
         # print(self.data.head())
-        self.keys = list(self.group2user.keys())
         pos = int(split_ratio*len(self.keys))
         if train:
             self.data = self.keys[:pos]
@@ -147,18 +148,23 @@ class Meetupv2(Dataset):
         random.shuffle(existing_users)
         random.shuffle(pred_users)
         pred_users += ['EOS']
-        if len(pred_users) > self.max_size:
+        pred_users_max_size = int(self.max_size*(1-self.sample_rate))
+        existing_users_max_size = int(self.max_size*(self.sample_rate))
+
+        if len(pred_users) > pred_users_max_size:
             pred_users = pred_users
-            pred_users = pred_users[:self.max_size-1]
+            pred_users = pred_users[:pred_users_max_size-1]
             pred_users += ['EOS'] # eos
 
         pred_users_cnt = len(pred_users)-1
-        pred_users += ['PAD']*(self.max_size - len(pred_users))
+        pred_users += ['PAD']*(pred_users_max_size - len(pred_users))
         pred_users = [  self.member_map[e] for e in pred_users]
+        existing_users += ['EOS']
 
-        if len(existing_users) > self.max_size:
-            existing_users = existing_users[:self.max_size]
-        existing_users += ['PAD']*(self.max_size - len(existing_users))
+        if len(existing_users) > existing_users_max_size:
+            existing_users = existing_users[:existing_users_max_size-1]
+            existing_users += ['EOS']
+        existing_users = ['PAD']*(existing_users_max_size - len(existing_users)) + existing_users
         existing_users = [  self.member_map[e] for e in existing_users]
 
 
@@ -314,16 +320,37 @@ class Meetupv1(Dataset):
         return len(self.data)
 
 if __name__ == "__main__":
+    from .models import Seq2Seq
+    import torch.nn as nn
+    criterion = nn.NLLLoss(ignore_index=TOKENS['PAD'])
 
-
-    test = Meetupv2(train=False, sample_ratio=0.5, query='group', max_size=600, city='chicago')
+    test = Meetupv2(train=False, sample_ratio=0.5, query='group', max_size=500, city='chicago')
     print(len(test))
-    train = Meetupv2(train=True, sample_ratio=0.5, query='group', max_size=600, city='chicago')
+    train = Meetupv2(train=True, sample_ratio=0.5, query='group', max_size=500, city='chicago')
     print('total: ', len(test)+len(train))
     print(train.get_stats())
 
-    # data = DataLoader(dataset, batch_size=16, num_workers=8)
-    # print(len(dataset.group2user))
+    stats = train.get_stats()
+    model = Seq2Seq(
+        embed_size=32,
+        vocab_size=stats['member']+3,
+        hidden_size=64,
+        enc_num_layers=1,
+        dec_num_layers=1,dropout=0.1,
+        st_mode=False,
+    )
+    data = DataLoader(train, batch_size=16, num_workers=8)
+    for batch in data:
+        existing_users, pred_users, cnt, tags = batch
+        decoder_outputs, d_h, hidden = model(existing_users, pred_users)
+        seq_length = decoder_outputs.shape[1]
+        loss = 0
+        print(seq_length)
+        for t in range(seq_length):
+            loss_ = criterion(torch.log(decoder_outputs[:, t, :]), pred_users[:,t+1], )
+            loss += loss_
+        print(loss)
+    print(len(dataset.group2user))
 
     # print('data size', len(dataset))
     # for batch in tqdm(data):
