@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import argparse
 from .dataset import Meetupv1, Meetupv2, TOKENS
-from .models import Seq2Seq
+from .models import Seq2Seq, Seq2SeqwTag
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
@@ -33,9 +33,13 @@ class Baseline(pl.LightningModule):
         self.criterion = nn.NLLLoss(ignore_index=TOKENS['PAD'])
         self.train_dataset = Meetupv2(train=True, 
             sample_ratio=self.hparams.sample_ratio, max_size=self.max_group, city=args.city,
-             query=self.hparams.query)
+             query=self.hparams.query, min_freq=args.freq)
         stats = self.train_dataset.get_stats()
-        self.model = Seq2Seq(
+        if args.model == 'seq2seq':
+            Model = Seq2Seq
+        else:
+            Model = Seq2SeqwTag
+        self.model = Model(
             embed_size=args.user_dim,
             vocab_size=stats['member']+3,
             hidden_size=args.hidden,
@@ -43,13 +47,18 @@ class Baseline(pl.LightningModule):
             dec_num_layers=args.dec_layer,dropout=0.1,
             st_mode=False,
             use_attn=args.attn,
+            tag_size=stats['topic']+3,
         )
         # self.skip_gram = Skipgram()
 
     def training_step(self, batch, batch_idx):
         existing_users, pred_users, pred_users_cnt, tags = batch
 
-        decoder_outputs, d_h, hidden = self.model(existing_users, pred_users)
+        if self.hparams.model == 'seq2seq':
+            decoder_outputs, d_h, hidden = self.model(existing_users, pred_users)
+        else:
+            decoder_outputs, d_h, hidden = self.model(existing_users, pred_users, tags)
+
         seq_length = decoder_outputs.shape[1]
         loss = 0
         for t in range(seq_length):
@@ -60,7 +69,10 @@ class Baseline(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         existing_users, pred_users, pred_users_cnt, tags = batch
-        decoder_outputs, d_h, hidden = self.model(existing_users, pred_users)
+        if self.hparams.model == 'seq2seq':
+            decoder_outputs, d_h, hidden = self.model(existing_users, pred_users)
+        else:
+            decoder_outputs, d_h, hidden = self.model(existing_users, pred_users, tags)
         seq_length = decoder_outputs.shape[1]
         loss = 0
         for t in range(seq_length):
@@ -102,8 +114,9 @@ class Baseline(pl.LightningModule):
 
     @pl.data_loader
     def val_dataloader(self):
-        self.dataset = Meetupv2(train=False, 
-            sample_ratio=self.hparams.sample_ratio, city=self.hparams.city, max_size=self.max_group, query=self.hparams.query)
+        self.dataset = Meetupv2(train=False,
+            sample_ratio=self.hparams.sample_ratio, min_freq=self.hparams.freq,
+            city=self.hparams.city, max_size=self.max_group, query=self.hparams.query)
         # self.dist_sampler = torch.utils.data.distributed.DistributedSampler(self.dataset)
         return DataLoader(self.dataset, 
             # sampler=self.dist_sampler, 
@@ -117,6 +130,7 @@ if __name__ == "__main__":
     parser.add_argument('--hidden', type=int, default=128)
     parser.add_argument('--enc-layer', type=int, default=1)
     parser.add_argument('--dec-layer', type=int, default=1)
+    parser.add_argument('--freq', type=int, default=10)
     parser.add_argument('--max-epochs', type=int, default=50)
     parser.add_argument('--min-epochs', type=int, default=30)
     parser.add_argument('--lr', type=float, default=1e-4)
@@ -128,6 +142,7 @@ if __name__ == "__main__":
     parser.add_argument('--city', type=str, default='nyc', choices=['nyc', 'sf', 'chicago'])
     parser.add_argument('--batch-size', type=int, default=8)
     parser.add_argument('--gpu', type=int, default=0)
+    parser.add_argument('--model', type=str, default='seq2seq', choices=['seq2seq', 'seq2seqwtag'])
 
     args = parser.parse_args()
     model = Baseline(args)

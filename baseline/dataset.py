@@ -170,7 +170,7 @@ class Meetupv2(Dataset):
 
         tags = self.group2tag[group_id]
         if len(tags) < 20:
-            tags += ['PAD'] * (20 - len(tags))
+            tags = ['PAD'] * (20 - len(tags)) + tags
         tags = [ self.topic_map[t] for t in tags[:20] ]
 
         existing_users = np.array(existing_users)
@@ -320,18 +320,18 @@ class Meetupv1(Dataset):
         return len(self.data)
 
 if __name__ == "__main__":
-    from .models import Seq2Seq
+    from .models import Seq2SeqwTag
     import torch.nn as nn
     criterion = nn.NLLLoss(ignore_index=TOKENS['PAD'])
 
-    test = Meetupv2(train=False, sample_ratio=0.5, query='group', max_size=500, city='chicago')
+    test = Meetupv2(train=False, sample_ratio=0.5, query='group', max_size=500, city='nyc', min_freq=20)
     print(len(test))
-    train = Meetupv2(train=True, sample_ratio=0.5, query='group', max_size=500, city='chicago')
+    train = Meetupv2(train=True, sample_ratio=0.5, query='group', max_size=500, city='nyc', min_freq=20)
     print('total: ', len(test)+len(train))
     print(train.get_stats())
 
     stats = train.get_stats()
-    model = Seq2Seq(
+    model = Seq2SeqwTag(
         embed_size=32,
         vocab_size=stats['member']+3,
         hidden_size=64,
@@ -343,7 +343,7 @@ if __name__ == "__main__":
     data = DataLoader(train, batch_size=16, num_workers=8)
     for batch in data:
         existing_users, pred_users, cnt, tags = batch
-        decoder_outputs, d_h, hidden = model(existing_users, pred_users)
+        decoder_outputs, d_h, hidden = model(existing_users, pred_users, tags)
         seq_length = decoder_outputs.shape[1]
         loss = 0
         print(seq_length)

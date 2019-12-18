@@ -45,7 +45,8 @@ if __name__ == "__main__":
     params_f = 'lightning_logs/{}/meta_tags.csv'.format(args.version)
     train_params = load_params(params_f)
     dataset = Meetupv2(train=False, sample_ratio=float(train_params['sample_ratio']),
-         max_size=int(train_params['max_group']), query='group', city=str(train_params['city']))
+         max_size=int(train_params['max_group']), query='group', city=str(train_params['city']), 
+         min_freq = int(train_params['freq']) if 'freq' in train_params else 5)
     print(train_params)
     stats = dataset.get_stats()
     model = Seq2Seq(

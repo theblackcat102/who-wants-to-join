@@ -203,11 +203,12 @@ class Seq2Seq(nn.Module):
     def __init__(self, embed_size, vocab_size, hidden_size,
                  enc_num_layers, dec_num_layers, dropout, st_mode, 
                  enc_cell=nn.LSTM, dec_cell=nn.LSTM, 
-                 enc_bidirect=True, use_attn=True
+                 enc_bidirect=True, use_attn=True,tag_size=965
                  ):
         super(Seq2Seq, self).__init__()
-        self.encoder = Encoder(embed_size, hidden_size, enc_num_layers, dropout, bidirectional=enc_bidirect, cell=nn.LSTM)
+        # self.embedding = FactorizedEmbeddings(vocab_size, embed_size, embed_size//2)
         self.embedding = nn.Embedding(vocab_size, embed_size)
+        self.encoder = Encoder(embed_size, hidden_size, enc_num_layers, dropout, bidirectional=enc_bidirect, cell=nn.LSTM)
         self.embed_dropout = nn.Dropout(0.1)
         attn = None
         if use_attn:
@@ -225,6 +226,45 @@ class Seq2Seq(nn.Module):
             encoder_outputs=latent, temperature=temperature)
         return outputs, d_h, hidden
 
+
+class Seq2SeqwTag(nn.Module):
+    def __init__(self, embed_size, vocab_size, hidden_size,
+                 enc_num_layers, dec_num_layers, dropout, st_mode, 
+                 enc_cell=nn.LSTM, dec_cell=nn.LSTM, 
+                 enc_bidirect=True, use_attn=True, tag_size=965
+                 ):
+        super(Seq2SeqwTag, self).__init__()
+        # self.embedding = FactorizedEmbeddings(vocab_size, embed_size, embed_size//2)
+        self.embedding = nn.Embedding(vocab_size, embed_size)
+        self.tag_embedding = nn.Embedding(tag_size, embed_size)
+        self.tag_encoder = Encoder(embed_size, hidden_size, 1, 0, 
+            bidirectional=False, cell=nn.LSTM)
+        self.embed_proj = nn.Linear(hidden_size*2, hidden_size)
+
+        self.encoder = Encoder(embed_size, hidden_size, enc_num_layers, dropout, bidirectional=enc_bidirect, cell=nn.LSTM)
+        self.embed_dropout = nn.Dropout(0.1)
+        attn = None
+        if use_attn:
+            print('Use Attention')
+            attn = LuongAttention(encoder_hidden_size=hidden_size, decoder_hidden_size=hidden_size)
+        self.decoder = Decoder(embed_size, vocab_size, hidden_size, dec_num_layers, dropout=dropout, 
+            st_mode=st_mode, cell=nn.LSTM, attention=attn)
+
+    def forward(self, inputs, labels, tags=None, temperature=1):
+        embed = self.embedding(inputs)
+        embed = self.embed_dropout(embed)
+        output_embed = self.embedding(labels)
+        latent, hidden = self.encoder(embed)
+
+        if tags is not None:
+            tags_embed = self.tag_embedding(tags)
+            _, tag_hidden = self.encoder(tags_embed)
+            merged_hidden_ = torch.cat((tag_hidden, hidden), axis=-1)
+            hidden = self.embed_proj(merged_hidden_)
+
+        outputs, d_h = self.decoder(output_embed[:, :-1, :], hidden, 
+            encoder_outputs=latent, temperature=temperature)
+        return outputs, d_h, hidden
 
 if __name__ == "__main__":
     encoder = Encoder(128, 128, 2, 0.1, bidirectional=True, cell=nn.LSTM)
