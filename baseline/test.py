@@ -58,21 +58,14 @@ if __name__ == "__main__":
     model.cuda()
 
     dataloader = DataLoader(dataset, 
-            # sampler=self.dist_sampler, 
             batch_size=1, num_workers=1, shuffle=False)
     model.eval()
     criterion = nn.CrossEntropyLoss(ignore_index=TOKENS['PAD'])
     device = 'cuda'
-    stats = []
-    match_score = []
-    pred_cnt = []
+    stats, match_score, pred_cnt = [], [], []
     with torch.no_grad():
         for batch in tqdm(dataloader, dynamic_ncols=True):
             existing_users, pred_users, pred_users_cnt, tags = batch
-            existing_users = existing_users.transpose(0, 1)
-            pred_users = pred_users.transpose(0, 1)
-            tags = tags.transpose(0, 1).long()
-
             existing_users = existing_users.cuda()
             pred_users = pred_users.cuda()
             tags = tags.cuda()
@@ -82,8 +75,7 @@ if __name__ == "__main__":
             if total_users == 0:
                 continue
             # print(torch.max(existing_users), torch.max(pred_users), torch.max(tags))
-            loss, norm_loss, decoder_outputs = model(existing_users, pred_users, tags, criterion, device=device, 
-                teacher_forcing_ratio=1.0)
+            decoder_outputs, _, _ = model(existing_users, pred_users)
             _, decoder_outputs_idx = torch.topk(decoder_outputs, k=top_k, dim=-1)
 
             decoder_outputs = decoder_outputs_idx.cpu().numpy()

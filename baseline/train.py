@@ -128,7 +128,7 @@ if __name__ == "__main__":
     parser.add_argument('--dec-layer', type=int, default=1)
     parser.add_argument('--max-epochs', type=int, default=50)
     parser.add_argument('--min-epochs', type=int, default=30)
-    parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--clip-grad', type=float, default=1.0)
     parser.add_argument('--sample-ratio', type=float, default=0.8, 
         help='number of users in group selected for input and the rest for prediction')
