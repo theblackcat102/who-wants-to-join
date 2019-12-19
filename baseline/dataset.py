@@ -59,6 +59,25 @@ def create_mapping(df, id_key):
     return data
 
 
+def seq_collate(batches):
+    max_exists_user = max([len(u[0]) for u in batches ])
+    max_pred_user = max([len(u[1]) for u in batches ])
+    existing_users, pred_users, tags, cnts = [], [], [], []
+    for batch in batches:
+        existing_user, pred_user, cnt, tag, pad_idx = batch
+
+        existing_users.append( np.array([pad_idx]*(max_exists_user - len(existing_user)) + existing_user))
+        pred_users.append( np.array([pad_idx]*(max_pred_user - len(pred_user)) + pred_user))
+        tags.append(tag)
+        cnts.append(cnt)
+
+    tags = torch.from_numpy(np.array(tags)).long()
+    pred_users = np.array(pred_users)
+    pred_users = torch.from_numpy(np.array(pred_users)).long()
+    existing_users = torch.from_numpy(np.array(existing_users)).long()
+    cnts = torch.from_numpy(np.array(cnts)).long()
+    return existing_users, pred_users, cnts, tags
+
 class Meetupv2(Dataset):
 
     def __init__(self, datapath='./meetup_v2', split_ratio=0.8, sample_ratio=0.5, 
@@ -93,7 +112,14 @@ class Meetupv2(Dataset):
             print('create group mapping')
             self.group_map = create_mapping(members, 'group_id')
             print('create group2user')
+
             self.group2user = create_relation(members, 'member_id', 'group_id')
+            keys = list(self.group2user.keys())
+            for group_id in keys:
+                users = self.group2user[group_id]
+                if len(users) < 4 or len(users) > 500:
+                    self.group2user.pop(group_id, None)
+
             self.data = group
             self.keys = list(self.group2user.keys())
             random.shuffle(self.keys)
@@ -157,14 +183,14 @@ class Meetupv2(Dataset):
             pred_users += ['EOS'] # eos
 
         pred_users_cnt = len(pred_users)-1
-        pred_users += ['PAD']*(pred_users_max_size - len(pred_users))
+        # pred_users += ['PAD']*(pred_users_max_size - len(pred_users))
         pred_users = [ self.member_map[e] for e in pred_users]
         existing_users += ['EOS']
 
         if len(existing_users) > existing_users_max_size:
             existing_users = existing_users[:existing_users_max_size-1]
             existing_users += ['EOS']
-        existing_users = ['PAD']*(existing_users_max_size - len(existing_users)) + existing_users
+        # existing_users = ['PAD']*(existing_users_max_size - len(existing_users)) + existing_users
         existing_users = [  self.member_map[e] for e in existing_users]
 
 
@@ -173,10 +199,10 @@ class Meetupv2(Dataset):
             tags = ['PAD'] * (20 - len(tags)) + tags
         tags = [ self.topic_map[t] for t in tags[:20] ]
 
-        existing_users = np.array(existing_users)
-        pred_users = np.array(pred_users)
+        # existing_users = np.array(existing_users)
+        # pred_users = np.array(pred_users)
 
-        return existing_users, pred_users, pred_users_cnt, np.array(tags)
+        return existing_users, pred_users, pred_users_cnt, tags, self.member_map['PAD']
 
 class Meetupv1(Dataset):
 
@@ -324,34 +350,35 @@ if __name__ == "__main__":
     import torch.nn as nn
     criterion = nn.NLLLoss(ignore_index=TOKENS['PAD'])
 
-    test = Meetupv2(train=False, sample_ratio=0.5, query='group', max_size=500, city='nyc', min_freq=20)
+    test = Meetupv2(train=False, sample_ratio=0.5, query='group', max_size=500, city='nyc', min_freq=10)
     print(len(test))
-    train = Meetupv2(train=True, sample_ratio=0.5, query='group', max_size=500, city='nyc', min_freq=20)
+    train = Meetupv2(train=True, sample_ratio=0.5, query='group', max_size=500, city='nyc', min_freq=10)
     print('total: ', len(test)+len(train))
     print(train.get_stats())
 
-    stats = train.get_stats()
-    model = Seq2SeqwTag(
-        embed_size=32,
-        vocab_size=stats['member']+3,
-        hidden_size=64,
-        enc_num_layers=2,
-        dec_num_layers=2,dropout=0.1,
-        st_mode=False,
-        use_attn=True
-    )
-    data = DataLoader(train, batch_size=16, num_workers=8)
+    # stats = train.get_stats()
+    # model = Seq2SeqwTag(
+    #     embed_size=32,
+    #     vocab_size=stats['member']+3,
+    #     hidden_size=64,
+    #     enc_num_layers=2,
+    #     dec_num_layers=2,dropout=0.1,
+    #     st_mode=False,
+    #     use_attn=True
+    # )
+    data = DataLoader(train, batch_size=16, num_workers=8, collate_fn=seq_collate)
     for batch in data:
-        existing_users, pred_users, cnt, tags = batch
-        decoder_outputs, d_h, hidden = model(existing_users, pred_users, tags)
-        seq_length = decoder_outputs.shape[1]
-        loss = 0
-        print(seq_length)
-        for t in range(seq_length):
-            loss_ = criterion(torch.log(decoder_outputs[:, t, :]), pred_users[:,t+1], )
-            loss += loss_
-        print(loss)
-    print(len(dataset.group2user))
+        existing_users, pred_users, tags = batch
+        print(existing_users.size(1))
+    #     decoder_outputs, d_h, hidden = model(existing_users, pred_users, tags)
+    #     seq_length = decoder_outputs.shape[1]
+    #     loss = 0
+    #     print(seq_length)
+    #     for t in range(seq_length):
+    #         loss_ = criterion(torch.log(decoder_outputs[:, t, :]), pred_users[:,t+1], )
+    #         loss += loss_
+    #     print(loss)
+    # print(len(dataset.group2user))
 
     # print('data size', len(dataset))
     # for batch in tqdm(data):

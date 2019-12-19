@@ -50,7 +50,12 @@ if __name__ == "__main__":
          max_size=int(train_params['max_group']), query='group', city=str(train_params['city']), 
          min_freq = int(train_params['freq']) if 'freq' in train_params else 5)
     stats = dataset.get_stats()
-    model = Seq2Seq(
+
+    Model = Seq2Seq
+    if 'model' in train_params and train_params['model'] == 'seq2seqwtag':
+        Model = Seq2SeqwTag
+
+    model = Model(
         embed_size=int(train_params['user_dim']),
         vocab_size=int(stats['member'])+3,
         enc_num_layers=int(train_params['enc_layer']),

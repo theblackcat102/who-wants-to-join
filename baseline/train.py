@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import argparse
-from .dataset import Meetupv1, Meetupv2, TOKENS
+from .dataset import Meetupv1, Meetupv2, TOKENS, seq_collate
 from .models import Seq2Seq, Seq2SeqwTag
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
@@ -111,8 +111,7 @@ class Baseline(pl.LightningModule):
     def train_dataloader(self):
         # self.dist_sampler = torch.utils.data.distributed.DistributedSampler(self.dataset)
         return DataLoader(self.train_dataset, 
-            # sampler=self.dist_sampler, 
-            batch_size=self.hparams.batch_size, num_workers=4, shuffle=True)
+            batch_size=self.hparams.batch_size, num_workers=4, shuffle=True, collate_fn=seq_collate)
 
     @pl.data_loader
     def val_dataloader(self):
@@ -120,9 +119,9 @@ class Baseline(pl.LightningModule):
             sample_ratio=self.hparams.sample_ratio, min_freq=self.hparams.freq,
             city=self.hparams.city, max_size=self.max_group, query=self.hparams.query)
         # self.dist_sampler = torch.utils.data.distributed.DistributedSampler(self.dataset)
-        return DataLoader(self.dataset, 
+        return DataLoader(self.dataset, collate_fn=seq_collate,
             # sampler=self.dist_sampler, 
-            batch_size=8, num_workers=8)
+            batch_size=8, num_workers=4)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='MoSAN Group Recommendation Model')
@@ -133,8 +132,8 @@ if __name__ == "__main__":
     parser.add_argument('--enc-layer', type=int, default=1)
     parser.add_argument('--dec-layer', type=int, default=1)
     parser.add_argument('--freq', type=int, default=10)
-    parser.add_argument('--max-epochs', type=int, default=50)
-    parser.add_argument('--min-epochs', type=int, default=30)
+    parser.add_argument('--max-epochs', type=int, default=60)
+    parser.add_argument('--min-epochs', type=int, default=40)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--clip-grad', type=float, default=1.0)
     parser.add_argument('--attn', type=str2bool, default=False, help='use attention')
