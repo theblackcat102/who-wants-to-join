@@ -1,6 +1,9 @@
 
 from collections import defaultdict
 import torch
+import torch.nn as nn
+import torch.nn.init as init
+
 from pytorch_lightning.logging import LightningLoggerBase, rank_zero_only
 
 class IgnoreLogger(LightningLoggerBase):
@@ -105,3 +108,50 @@ def binary_matrix(seq, pad_token=1):
         else:
             m.append(1)
     return m
+
+
+
+def orthogonal_regularization(model, reg=1e-6):
+    '''
+    heavily reliant on memory
+    '''
+    with torch.enable_grad():
+        orth_loss = torch.zeros(1)
+        orth_loss = orth_loss.cuda()
+        for name, param in model.named_parameters():
+            if 'bias' not in name:
+                param_flat = param.view(param.shape[0], -1)
+                sym = torch.mm(param_flat, torch.t(param_flat))
+                sym -= torch.eye(param_flat.shape[0]).cuda()
+                orth_loss = orth_loss + (reg * sym.abs().sum())
+    return orth_loss
+
+def orthogonal_initialization(model):
+    for m in model.modules():
+        if isinstance(m, (nn.Embedding, nn.Linear)):
+            nn.init.orthogonal(m.weight)
+        elif isinstance(m, nn.LSTM):
+            for param in m.parameters():
+                if len(param.shape) >= 2:
+                    init.orthogonal_(param.data)
+                else:
+                    init.normal_(param.data)
+        elif isinstance(m, nn.LSTMCell):
+            for param in m.parameters():
+                if len(param.shape) >= 2:
+                    init.orthogonal_(param.data)
+                else:
+                    init.normal_(param.data)
+        elif isinstance(m, nn.GRU):
+            for param in m.parameters():
+                if len(param.shape) >= 2:
+                    init.orthogonal_(param.data)
+                else:
+                    init.normal_(param.data)
+        elif isinstance(m, nn.GRUCell):
+            for param in m.parameters():
+                if len(param.shape) >= 2:
+                    init.orthogonal_(param.data)
+                else:
+                    init.normal_(param.data)
+    return model

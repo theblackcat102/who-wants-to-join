@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from .dataset import TOKENS
 import random
-from .utils import gumbel_softmax, softmax, binary_matrix
+from .utils import gumbel_softmax, softmax, binary_matrix, orthogonal_initialization
 
 MAX_LENGTH = 203
 
@@ -216,6 +216,7 @@ class Seq2Seq(nn.Module):
             attn = LuongAttention(encoder_hidden_size=hidden_size, decoder_hidden_size=hidden_size)
         self.decoder = Decoder(embed_size, vocab_size, hidden_size, dec_num_layers, dropout=dropout, 
             st_mode=st_mode, cell=nn.LSTM, attention=attn)
+        orthogonal_initialization(self)
 
     def forward(self, inputs, labels, temperature=1):
         embed = self.embedding(inputs)
@@ -226,6 +227,27 @@ class Seq2Seq(nn.Module):
             encoder_outputs=latent, temperature=temperature)
         return outputs, d_h, hidden
 
+    def decode(self, inputs, tags=None, temperature=1, target_length=-1, topk=1):
+        embed = self.embedding(inputs)
+        embed = self.embed_dropout(embed)
+        latent, hidden = self.encoder(embed)
+        if target_length < 0:
+            raise ValueError('decode length must be longer than 0')
+
+        decoder_outputs = []
+        decoder_input = self.embedding(torch.tensor([[TOKENS['BOS']]], device=inputs.device))
+        for di in range(target_length):
+            outputs, hidden = self.decoder(decoder_input, hidden, 
+                encoder_outputs=latent, temperature=temperature)
+            _, topi = outputs.topk(1)
+            hidden = hidden[0]
+            decoder_input = self.embedding(topi.detach()).squeeze(0)
+            _, topi = outputs.topk(topk)
+
+            decoder_outputs.append(topi.cpu().detach().squeeze().numpy())
+            if topi.item() == TOKENS['EOS']:
+                break
+        return np.array(decoder_outputs)
 
 class Seq2SeqwTag(nn.Module):
     def __init__(self, embed_size, vocab_size, hidden_size,
@@ -249,6 +271,7 @@ class Seq2SeqwTag(nn.Module):
             attn = LuongAttention(encoder_hidden_size=hidden_size, decoder_hidden_size=hidden_size)
         self.decoder = Decoder(embed_size, vocab_size, hidden_size, dec_num_layers, dropout=dropout, 
             st_mode=st_mode, cell=nn.LSTM, attention=attn)
+        orthogonal_initialization(self)
 
     def forward(self, inputs, labels, tags=None, temperature=1):
         embed = self.embedding(inputs)
@@ -265,6 +288,33 @@ class Seq2SeqwTag(nn.Module):
         outputs, d_h = self.decoder(output_embed[:, :-1, :], hidden, 
             encoder_outputs=latent, temperature=temperature)
         return outputs, d_h, hidden
+    
+    def decode(self, inputs, tags=None, temperature=1, target_length=-1, topk=1):
+        embed = self.embedding(inputs)
+        embed = self.embed_dropout(embed)
+        output_embed = self.embedding(labels)
+        latent, hidden = self.encoder(embed)
+
+        if tags is not None:
+            tags_embed = self.tag_embedding(tags)
+            _, tag_hidden = self.encoder(tags_embed)
+            merged_hidden_ = torch.cat((tag_hidden, hidden), axis=-1)
+            hidden = self.embed_proj(merged_hidden_)
+
+        decoder_outputs = []
+        decoder_input = self.embedding(torch.tensor([[TOKENS['BOS']]], device=inputs.device))
+        for di in range(target_length):
+            outputs, hidden = self.decoder(decoder_input, hidden, 
+                encoder_outputs=latent, temperature=temperature)
+            _, topi = outputs.topk(1)
+            hidden = hidden[0]
+            decoder_input = self.embedding(topi.detach()).squeeze(0)
+            _, topi = outputs.topk(topk)
+
+            decoder_outputs.append(topi.cpu().detach().squeeze().numpy())
+            if topi.item() == TOKENS['EOS']:
+                break
+        return np.array(decoder_outputs)
 
 if __name__ == "__main__":
     encoder = Encoder(128, 128, 2, 0.1, bidirectional=True, cell=nn.LSTM)

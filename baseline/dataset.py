@@ -158,7 +158,7 @@ class Meetupv2(Dataset):
 
         pred_users_cnt = len(pred_users)-1
         pred_users += ['PAD']*(pred_users_max_size - len(pred_users))
-        pred_users = [  self.member_map[e] for e in pred_users]
+        pred_users = [ self.member_map[e] for e in pred_users]
         existing_users += ['EOS']
 
         if len(existing_users) > existing_users_max_size:

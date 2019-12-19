@@ -7,6 +7,8 @@ from torch.utils.data import Dataset, DataLoader
 import argparse
 from .dataset import Meetupv1, Meetupv2, TOKENS
 from .models import Seq2Seq
+from .train import str2bool
+from .utils import orthogonal_initialization
 from tqdm import tqdm
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
@@ -47,12 +49,18 @@ if __name__ == "__main__":
     dataset = Meetupv2(train=False, sample_ratio=float(train_params['sample_ratio']),
          max_size=int(train_params['max_group']), query='group', city=str(train_params['city']), 
          min_freq = int(train_params['freq']) if 'freq' in train_params else 5)
-    print(train_params)
     stats = dataset.get_stats()
     model = Seq2Seq(
-        user_size=stats['member']+3,
-        hidden_size=int(train_params['user_dim']),
-        )
+        embed_size=int(train_params['user_dim']),
+        vocab_size=int(stats['member'])+3,
+        enc_num_layers=int(train_params['enc_layer']),
+        dec_num_layers=int(train_params['dec_layer']),
+        dropout=0.1,
+        st_mode=False,
+        use_attn=str2bool(train_params['attn']),
+        hidden_size=int(train_params['hidden']),
+        tag_size=int(stats['topic'])+3,
+    )
     model.load_state_dict({ key[6:] : value for key, value in checkpoint['state_dict'].items()})
  
     top_k = args.topk
@@ -76,15 +84,15 @@ if __name__ == "__main__":
             if total_users == 0:
                 continue
             # print(torch.max(existing_users), torch.max(pred_users), torch.max(tags))
-            decoder_outputs, _, _ = model(existing_users, pred_users)
-            _, decoder_outputs_idx = torch.topk(decoder_outputs, k=top_k, dim=-1)
-
-            decoder_outputs = decoder_outputs_idx.cpu().numpy()
+            decoder_outputs = model.decode(existing_users, 
+                target_length=pred_users.size(1), topk=top_k)
             pred_users = pred_users.cpu().numpy()
 
             decoder_outputs = np.unique(decoder_outputs.flatten())
             pred_users = pred_users.flatten()
             acc = 0
+            print(decoder_outputs, pred_users)
+            print('')
 
             for token in decoder_outputs:
                 if token not in [0, 1, 2]:

@@ -39,6 +39,7 @@ class Baseline(pl.LightningModule):
             Model = Seq2Seq
         else:
             Model = Seq2SeqwTag
+        print(Model)
         self.model = Model(
             embed_size=args.user_dim,
             vocab_size=stats['member']+3,
@@ -73,6 +74,7 @@ class Baseline(pl.LightningModule):
             decoder_outputs, d_h, hidden = self.model(existing_users, pred_users)
         else:
             decoder_outputs, d_h, hidden = self.model(existing_users, pred_users, tags)
+
         seq_length = decoder_outputs.shape[1]
         loss = 0
         for t in range(seq_length):
