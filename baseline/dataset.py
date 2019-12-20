@@ -86,19 +86,24 @@ def seq_collate(batches):
     max_pred_user = max([len(u[1]) for u in batches ])
     existing_users, pred_users, tags, cnts = [], [], [], []
     for batch in batches:
-        existing_user, pred_user, cnt, tag, pad_idx = batch
-
+        if len(batch) == 4:
+            tag = None
+            existing_user, pred_user, cnt, pad_idx = batch
+        else:
+            existing_user, pred_user, cnt, tag, pad_idx = batch
         existing_users.append( np.array([pad_idx]*(max_exists_user - len(existing_user)) + existing_user))
         pred_users.append( np.array([pad_idx]*(max_pred_user - len(pred_user)) + pred_user))
-        tags.append(tag)
+        if tag is not None:
+            tags.append(tag)
         cnts.append(cnt)
-
-    tags = torch.from_numpy(np.array(tags)).long()
     pred_users = np.array(pred_users)
     pred_users = torch.from_numpy(np.array(pred_users)).long()
     existing_users = torch.from_numpy(np.array(existing_users)).long()
     cnts = torch.from_numpy(np.array(cnts)).long()
-    return existing_users, pred_users, cnts, tags
+    if len(tags) > 0:
+        tags = torch.from_numpy(np.array(tags)).long()
+        return existing_users, pred_users, cnts, tags
+    return existing_users, pred_users, cnts
 
 class Meetupv2(Dataset):
 
@@ -185,17 +190,15 @@ class Meetupv2(Dataset):
 
         select_rate = self.sample_rate
 
-        existing_users = random.choices(available_user, k=min(int(select_rate*len(available_user)), 1 ) )
+        pred_users = random.choices(available_user, k=max(int((1-select_rate)*len(available_user)), 1 ) )
         # print(len(available_user), len(existing_users))
         interaction = []
         context_users = []
-        participate_size = len(existing_users)
-        attn_mask = [1] * participate_size
 
-        pred_users = deepcopy(available_user)
-        for u in existing_users:
-            if u in pred_users:
-                pred_users.remove(u)
+        existing_users = deepcopy(available_user)
+        for u in pred_users:
+            if u in existing_users:
+                existing_users.remove(u)
 
         if self.order_shuffle is False:
             existing_users.sort(key=lambda x: self.member_frequency[x], reverse=True)
@@ -376,14 +379,137 @@ class Meetupv1(Dataset):
     def __len__(self):
         return len(self.data)
 
+
+class SocialDataset(Dataset):
+    def __init__(self, dataset='amazon', split_ratio=0.8, sample_ratio=0.5, 
+        order_shuffle=True,
+        train=True, query='group', pred_size=100, max_size=5000, min_size=10, min_freq=5):
+        if dataset not in ['amazon', 'orkut', 'lj','friendster', 'youtube']:
+            raise ValueError('Invalid dataset')
+        self.query = query
+        train_str = 'train_' if train else 'test_'
+        filename = '{}_freq_{}_{}-{}_{}_cache.pkl'.format(self.query, min_freq, max_size, min_size, dataset )
+        cache_path = os.path.join('.cache', filename)
+        if not os.path.exists(cache_path):
+            community_filename = '{}/com-{}.all.cmty.txt'.format(dataset, dataset)
+            with open(community_filename, 'r') as f:
+                group2user = defaultdict(list)
+                members = []
+                for line in f.readlines():
+                    members_ = line.strip().split('\t')
+                    if len(members_) >= min_size and len(members_) <= max_size:
+                        group2user[len(group2user) ] = members_
+                        members += members_
+                
+                member_frequency_ = Counter(members)
+                valid_member = []
+                member_map = defaultdict(int)
+                for key, value in TOKENS.items():
+                    member_map[key] = len(member_map)
+
+                for m, frequency in member_frequency_.items():
+                    if frequency > min_freq:
+                        member_map[m] = len(member_map)
+                        valid_member.append(m)
+
+                for group_id, members_ in group2user.items():
+                    for m in members_:
+                        if m not in valid_member:
+                            members_.remove(m)
+
+                    group2user[group_id] = members_
+                self.group2user = group2user
+                self.member_map = member_map
+                self.member_frequency = member_frequency_
+                self.keys = list(self.group2user.keys())
+                random.shuffle(self.keys)
+
+                cache_data = ( self.group2user, self.member_map, self.member_frequency, self.keys )
+            with open(cache_path, 'wb') as f:
+                pickle.dump(cache_data, f)
+        else:
+            with open(cache_path, 'rb') as f:
+                ( self.group2user, self.member_map, self.member_frequency, self.keys ) = pickle.load(f)
+        self.sample_rate = sample_ratio
+        # print(self.data.head())
+        pos = int(split_ratio*len(self.keys))
+        if train:
+            self.data = self.keys[:pos]
+        else:
+            self.data = self.keys[pos:]
+        self.max_size = max_size
+        self.order_shuffle = order_shuffle
+
+    def get_stats(self):
+        # print(self.keys)
+        return {
+            'member': len(self.member_map),
+        }
+    
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx): # iterator to load data
+        # row = self.data.iloc[idx, :]
+        group_id = self.data[idx]#row['group_id']
+        # event = self.data[idx]
+        available_user = self.group2user[group_id]
+
+        select_rate = self.sample_rate
+
+        pred_users = random.choices(available_user, k=max(int((1-select_rate)*len(available_user)), 1 ) )
+        # print(len(available_user), len(existing_users))
+        interaction = []
+        context_users = []
+
+        existing_users = deepcopy(available_user)
+        for u in pred_users:
+            if u in existing_users:
+                existing_users.remove(u)
+
+        if self.order_shuffle is False:
+            existing_users.sort(key=lambda x: self.member_frequency[x], reverse=True)
+            pred_users.sort( key=lambda x: self.member_frequency[x], reverse=True)
+        else:
+            random.shuffle(existing_users)
+            random.shuffle(pred_users)
+
+        pred_users += ['EOS']
+        pred_users_max_size = int(self.max_size*(1-self.sample_rate))
+        existing_users_max_size = int(self.max_size*(self.sample_rate))
+
+        if len(pred_users) > pred_users_max_size:
+            pred_users = pred_users
+            pred_users = pred_users[:pred_users_max_size-1]
+            pred_users += ['EOS'] # eos
+
+        pred_users_cnt = len(pred_users)-1
+        # pred_users += ['PAD']*(pred_users_max_size - len(pred_users))
+        pred_users = [ self.member_map[e] for e in pred_users]
+        existing_users += ['EOS']
+
+        if len(existing_users) > existing_users_max_size:
+            existing_users = existing_users[:existing_users_max_size-1]
+            existing_users += ['EOS']
+        # existing_users = ['PAD']*(existing_users_max_size - len(existing_users)) + existing_users
+        existing_users = [  self.member_map[e] for e in existing_users]
+
+        return existing_users, pred_users, pred_users_cnt, self.member_map['PAD']
+
+
+
 if __name__ == "__main__":
     from .models import Seq2SeqwTag
     import torch.nn as nn
     criterion = nn.NLLLoss(ignore_index=TOKENS['PAD'])
 
-    test = Meetupv2(train=False, sample_ratio=0.8, query='group', max_size=500, city='nyc', min_freq=5)
 
-    train = Meetupv2(train=True, sample_ratio=0.8, query='group', max_size=500, city='nyc', min_freq=5)
+    test = SocialDataset(train=False, sample_ratio=0.8, query='group', max_size=200, dataset='lj', min_freq=5)
+    train = SocialDataset(train=True, sample_ratio=0.8, query='group', max_size=200, dataset='lj', min_freq=5)
+
+    # test = Meetupv2(train=False, sample_ratio=0.8, query='group', max_size=500, city='nyc', min_freq=5)
+    # train = Meetupv2(train=True, sample_ratio=0.8, query='group', max_size=500, city='nyc', min_freq=5)
     print('total: ', len(test)+len(train))
     print('Test size : {}, Train size : {}'.format(len(test), len(train)))
     print(train.get_stats())
@@ -400,7 +526,8 @@ if __name__ == "__main__":
     # )
     data = DataLoader(train, batch_size=16, num_workers=8, collate_fn=seq_collate)
     for batch in data:
-        existing_users, pred_users, cnts, tags = batch
+        existing_users, pred_users, cnts = batch
+        print(existing_users.shape, pred_users.shape)
     #     print(existing_users.size(1),pred_users.size(1))
     #     decoder_outputs, d_h, hidden = model(existing_users, pred_users, tags)
     #     seq_length = decoder_outputs.shape[1]

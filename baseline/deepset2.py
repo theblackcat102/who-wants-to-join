@@ -11,7 +11,7 @@ import argparse
 import random
 from .test import load_params, extract_checkpoint_files
 from .models import FactorizedEmbeddings
-from .dataset import Meetupv1, Meetupv2, TOKENS, seq_collate
+from .dataset import Meetupv1, SocialDataset, TOKENS, seq_collate
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
 from .set_classifier import PermEqui1_max, PermEqui2_max, PermEqui2_mean, PermEqui1_mean
@@ -68,10 +68,11 @@ class Deepset(nn.Module):
         self.embedding = nn.Embedding(vocab_size, hidden_size)
 
         self.extractor = nn.Sequential(
+            nn.Dropout(0.1),
             proj_fn(hidden_size, hidden_size),
             nn.ELU(inplace=True),
             # nn.BatchNorm1d(256),
-            nn.Dropout(0.2),
+            nn.Dropout(0.5),
             proj_fn(hidden_size, hidden_size),
             nn.ELU(inplace=True),
             # nn.BatchNorm1d(512),
@@ -83,47 +84,49 @@ class Deepset(nn.Module):
             nn.Linear(set_features, hidden_size),
             nn.ELU(inplace=True),
             nn.Dropout(0.5),
+            nn.BatchNorm1d(hidden_size),
             nn.Linear(hidden_size, vocab_size),
             # nn.Sigmoid(),
         )
-        # self.reconstruct = nn.Sequential(
-        #     nn.Dropout(0.5),
-        #     nn.Linear(set_features, hidden_size),
-        #     nn.ELU(inplace=True),
-        #     nn.Dropout(0.5),
-        #     nn.Linear(hidden_size, vocab_size),
-        #     # nn.Sigmoid(),
-        # )
+        self.reconstruct = nn.Sequential(
+            nn.Dropout(0.5),
+            nn.Linear(set_features, hidden_size),
+            nn.ELU(inplace=True),
+            nn.Dropout(0.5),
+            nn.BatchNorm1d(hidden_size),
+            nn.Linear(hidden_size, vocab_size),
+            # nn.Sigmoid(),
+        )
 
     def forward(self, users):
         output_users = self.embedding(users)
         latent = self.extractor(output_users)
         latent, _ = latent.max(1)
-        return self.regressor(latent), None#, self.reconstruct(latent)
+        return self.regressor(latent), self.reconstruct(latent)
 
 class Model(pl.LightningModule):
     def __init__(self, args):
         super(Model, self).__init__()
         self.hparams = args
         self.max_group = args.max_group
-        self.train_dataset = Meetupv2(train=True, 
+        self.train_dataset = SocialDataset(train=True, 
             order_shuffle=args.order_shuffle,
-            sample_ratio=self.hparams.sample_ratio, max_size=args.max_group, city=args.city,
+            sample_ratio=self.hparams.sample_ratio, max_size=args.max_group, dataset=args.dataset,
             query=self.hparams.query, min_freq=args.freq)
         stats = self.train_dataset.get_stats()
         self.user_size=stats['member']+3
         set_features=args.feature
         self.model = Deepset(self.user_size, args.hidden, set_features, pool=args.pool)
-        pos_weight = torch.ones([self.user_size])*100
+        pos_weight = torch.ones([self.user_size])*40
         # self.l2 = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
         self.l2 = nn.MSELoss()
 
 
     def training_step(self, batch, batch_idx):
         # REQUIRED
-        existing_users, pred_users, pred_users_cnt, tags = batch        
+        existing_users, pred_users, pred_users_cnt = batch        
         B = existing_users.shape[0]
-        output, _ = self.model(existing_users)
+        output, exists_output = self.model(existing_users)
         y_onehot = torch.FloatTensor(B, self.user_size)
         y_onehot.zero_()
         y_onehot = y_onehot.to(pred_users.device)
@@ -135,12 +138,12 @@ class Model(pl.LightningModule):
         y_onehot_input.scatter_(1, existing_users, 1)
         y_onehot_input[:, :4] = 0.0
 
-        loss = self.l2(output, y_onehot)# + self.l2(exists_output, y_onehot_input)
+        loss = self.l2(output, y_onehot) + self.l2(exists_output, y_onehot_input)
         tensorboard_logs = {'Loss/train': loss.item(), 'norm_loss/train': loss.item()/B}
         return {'loss': loss, 'log': tensorboard_logs}
 
     def validation_step(self, batch, batch_idx):
-        existing_users, pred_users, pred_users_cnt, tags = batch        
+        existing_users, pred_users, pred_users_cnt = batch        
 
         B = existing_users.shape[0]
         y_onehot = torch.FloatTensor(B, self.user_size)
@@ -191,10 +194,10 @@ class Model(pl.LightningModule):
 
     @pl.data_loader
     def val_dataloader(self):
-        self.dataset = Meetupv2(train=False,
+        self.dataset = SocialDataset(train=False,
             order_shuffle=self.hparams.order_shuffle,
             sample_ratio=self.hparams.sample_ratio, min_freq=self.hparams.freq,
-            city=self.hparams.city, max_size=self.max_group, query=self.hparams.query)
+            dataset=self.hparams.dataset, max_size=self.max_group, query=self.hparams.query)
         return DataLoader(self.dataset, 
             # sampler=self.dist_sampler, 
             collate_fn=seq_collate,
@@ -203,86 +206,25 @@ class Model(pl.LightningModule):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Deepset Recommendation Model')
-    parser.add_argument('--dataset', type=str, default='meetup_v2')
     parser.add_argument('--query', type=str, default='group')
     parser.add_argument('--task', type=str, default='train')
     parser.add_argument('--model', type=str, default='deepset')
     parser.add_argument('--freq', type=int, default=10, help='user exists minimal frequency')
     parser.add_argument('--order-shuffle', type=str2bool, default=True)
-    parser.add_argument('--hidden', type=int, default=256)
-    parser.add_argument('--feature', type=int, default=256)
+    parser.add_argument('--hidden', type=int, default=64)
+    parser.add_argument('--feature', type=int, default=64)
     parser.add_argument('--pool', type=str, default='max', choices=['max1', 'max', 'mean', 'mean1'])
     parser.add_argument('--max-epochs', type=int, default=200)
     parser.add_argument('--min-epochs', type=int, default=100)
-    parser.add_argument('--lr', type=float, default=1e-3)
+    parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--sample-ratio', type=float, default=0.8)
-    parser.add_argument('--city', type=str, default='nyc', choices=['nyc', 'sf', 'chicago'])
-    parser.add_argument('--max-group', type=int, default=500)
+    parser.add_argument('--dataset', type=str, default='amazon', choices=['amazon', 'orkut', 'lj','friendster', 'youtube'])
+    parser.add_argument('--max-group', type=int, default=200)
     parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--gpu', type=int, default=0)
 
     args = parser.parse_args()
-    if args.task == 'train':
-        model = Model(args)
-
-        trainer = pl.Trainer(max_nb_epochs=args.max_epochs,min_nb_epochs=args.min_epochs, train_percent_check=1.0, 
-            gpus=[args.gpu])
-        trainer.fit(model)
-    else:
-        restore_path = 'lightning_logs/version_1/checkpoints/_ckpt_epoch_1.ckpt'
-        checkpoint = torch.load(restore_path)
-        train_params = load_params(params_f)
-        dataset = Meetupv2(train=False, sample_ratio=float(train_params['sample_ratio']),
-             order_shuffle= str2bool(train_params['sample_ratio'])  if 'order_shuffle' in train_params else True,
-            max_size=int(train_params['max_group']), query='group', city=str(train_params['city']), 
-            min_freq = int(train_params['freq']) if 'freq' in train_params else 5)
-
-        model = Deepset(user_size=dataset_stats[args.dataset]['user_size'], hidden_size=32, set_features=512)
-        model = model.cuda()
-        model.eval()
-
-        model.load_state_dict({ key[6:] : value for key, value in checkpoint['state_dict'].items()})
-        dataset = Meetupv1(train=False, 
-            sample_ratio=args.sample_ratio, max_size=dataset_stats[args.dataset]['group_size'], 
-            query=args.query)
-
-        val_iter = DataLoader(dataset, batch_size=8, num_workers=8)
-        matched = 0
-        group_size = 0
-        y_onehot = torch.FloatTensor(8, dataset_stats[args.dataset]['user_size'])
-        for batch in val_iter:
-            existing_users, target_users, target_users_cnt, _ = batch        
-            existing_users = existing_users.cuda()
-            target_users = target_users.cuda()
-
-            y_onehot.zero_()
-            y_onehot = y_onehot.to(target_users.device)
-            y_onehot.scatter_(1, target_users, 1)
-            # print(existing_users, target_users)
-
-            pred_users = torch.sigmoid(model(existing_users))
-            # print(y_onehot[0].sum(), pred_users[0][:100])
-
-            '''
-                [ 0.1 0.9 ]
-                [ 1 ]
-            '''
-            target_users = target_users.cpu()
-            pred_users = pred_users.cpu()
-
-            user_size = pred_users.shape[-1]
-
-            for idx in range(len(pred_users)):
-                # print(pred_users[idx])
-                match_idx = pred_users[idx] > 0.5
-                user_idx = torch.arange(0, user_size )[ match_idx ].to(target_users.device)
-                if len(user_idx) == 0:
-                    continue
-                intersection = np.intersect1d(user_idx.numpy(), 
-                target_users[idx].numpy())
-
-                matched += (intersection != 1).sum()
-                group_size += target_users_cnt[idx]
-                print(intersection, len(user_idx))
-
-        print(matched/group_size)
+    model = Model(args)
+    trainer = pl.Trainer(max_nb_epochs=args.max_epochs,min_nb_epochs=args.min_epochs, train_percent_check=1.0, 
+        gpus=[args.gpu])
+    trainer.fit(model)

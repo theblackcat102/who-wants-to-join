@@ -5,8 +5,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import argparse
-from .dataset import Meetupv1, Meetupv2, TOKENS, seq_collate
-from .deepset import Deepset, confusion
+from .dataset import Meetupv1, SocialDataset, TOKENS, seq_collate
+from .deepset2 import Deepset, confusion
 from .train import str2bool
 from .utils import orthogonal_initialization, predict
 from tqdm import tqdm
@@ -47,9 +47,9 @@ if __name__ == "__main__":
     checkpoint = torch.load(restore_path)
     params_f = 'lightning_logs/{}/meta_tags.csv'.format(args.version)
     train_params = load_params(params_f)
-    dataset = Meetupv2(train=False, sample_ratio=float(train_params['sample_ratio']),
+    dataset = SocialDataset(train=False, sample_ratio=float(train_params['sample_ratio']),
          order_shuffle= str2bool(train_params['order_shuffle'])  if 'order_shuffle' in train_params else True,
-         max_size=int(train_params['max_group']), query='group', city=str(train_params['city']), 
+         max_size=int(train_params['max_group']), query='group', dataset=str(train_params['dataset']), 
          min_freq = int(train_params['freq']) if 'freq' in train_params else 5)
     stats = dataset.get_stats()
 
@@ -75,15 +75,9 @@ if __name__ == "__main__":
         pbar = tqdm(dataloader, dynamic_ncols=True)
         for batch in pbar:
             # print(len(batch))
-            existing_users, pred_users, pred_users_cnt, tags = batch
+            existing_users, pred_users, pred_users_cnt = batch
             existing_users = existing_users.cuda()
             pred_users = pred_users.cuda()
-            tags = tags.cuda()
-            pred_users_cnt = pred_users_cnt.cuda()
-            total_users = pred_users_cnt.sum().item()
-            if total_users == 0:
-                # print('no user')
-                continue
             output, _ = model(existing_users)
             decoder_outputs = ( torch.sigmoid(output) > 0.5 ).long()
             # print(output[:,:20])
@@ -94,7 +88,7 @@ if __name__ == "__main__":
             y_onehot.zero_()
             y_onehot = y_onehot.to(pred_users.device)
             y_onehot.scatter_(1, pred_users, 1)
-            print(decoder_outputs.nonzero()[:, 1].shape)
+            # print(decoder_outputs.nonzero()[:, 1].shape)
             # print(existing_users[:,:10], y_onehot[:, pred_users.flatten()],
             #     pred_users[:, :10], y_onehot[:, :10]
             # )
