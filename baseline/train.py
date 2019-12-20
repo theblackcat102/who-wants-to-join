@@ -32,6 +32,7 @@ class Baseline(pl.LightningModule):
         self.max_group = args.max_group
         self.criterion = nn.NLLLoss(ignore_index=TOKENS['PAD'])
         self.train_dataset = Meetupv2(train=True, 
+            order_shuffle=args.order_shuffle,
             sample_ratio=self.hparams.sample_ratio, max_size=self.max_group, city=args.city,
              query=self.hparams.query, min_freq=args.freq)
         stats = self.train_dataset.get_stats()
@@ -65,6 +66,8 @@ class Baseline(pl.LightningModule):
         for t in range(seq_length):
             loss += self.criterion(torch.log(decoder_outputs[:, t, :]), pred_users[:,t+1])
         norm_loss = loss/existing_users.shape[0]
+        loss = loss/pred_users_cnt.sum()
+
         tensorboard_logs = {'loss/train': loss.item(), 'norm_loss/train': norm_loss.item()}
         return {'loss': loss, 'log': tensorboard_logs}
 
@@ -80,6 +83,7 @@ class Baseline(pl.LightningModule):
         for t in range(seq_length):
             loss += self.criterion(torch.log(decoder_outputs[:, t, :]), pred_users[:,t+1], )
         norm_loss = loss/existing_users.shape[0]
+        loss = loss/pred_users_cnt.sum()
         argmax = torch.argmax(decoder_outputs, dim=-1)
         invalid_targets = pred_users[:, 1:].eq(TOKENS['PAD'])
         accuracy = argmax.eq(pred_users[:, 1:]).masked_fill_(invalid_targets, 0)\
@@ -116,6 +120,7 @@ class Baseline(pl.LightningModule):
     @pl.data_loader
     def val_dataloader(self):
         self.dataset = Meetupv2(train=False,
+            order_shuffle=self.hparams.order_shuffle,
             sample_ratio=self.hparams.sample_ratio, min_freq=self.hparams.freq,
             city=self.hparams.city, max_size=self.max_group, query=self.hparams.query)
         # self.dist_sampler = torch.utils.data.distributed.DistributedSampler(self.dataset)
@@ -134,6 +139,7 @@ if __name__ == "__main__":
     parser.add_argument('--freq', type=int, default=10)
     parser.add_argument('--max-epochs', type=int, default=60)
     parser.add_argument('--min-epochs', type=int, default=40)
+    parser.add_argument('--order-shuffle', type=str2bool, default=False)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--clip-grad', type=float, default=1.0)
     parser.add_argument('--attn', type=str2bool, default=False, help='use attention')

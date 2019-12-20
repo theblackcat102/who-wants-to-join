@@ -13,3 +13,21 @@ Users 42,747
 
 
 
+
+Does order Matter?
+
+https://arxiv.org/pdf/1909.03590.pdf
+
+
+On the limitation of representing functions as set
+https://arxiv.org/abs/1901.09006
+
+
+Set Transformer : A framework for attention based permutation invariant
+https://arxiv.org/pdf/1810.00825.pdf
+
+Probablistic symmetery and invariant neural network
+https://arxiv.org/pdf/1901.06082.pdf
+
+Deep sets
+https://arxiv.org/pdf/1703.06114.pdf

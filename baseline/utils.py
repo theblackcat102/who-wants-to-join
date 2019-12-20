@@ -3,7 +3,7 @@ from collections import defaultdict
 import torch
 import torch.nn as nn
 import torch.nn.init as init
-
+import numpy as np
 from pytorch_lightning.logging import LightningLoggerBase, rank_zero_only
 
 class IgnoreLogger(LightningLoggerBase):
@@ -115,15 +115,17 @@ def orthogonal_regularization(model, reg=1e-6):
     '''
     heavily reliant on memory
     '''
-    with torch.enable_grad():
-        orth_loss = torch.zeros(1)
-        orth_loss = orth_loss.cuda()
-        for name, param in model.named_parameters():
-            if 'bias' not in name:
-                param_flat = param.view(param.shape[0], -1)
-                sym = torch.mm(param_flat, torch.t(param_flat))
-                sym -= torch.eye(param_flat.shape[0]).cuda()
-                orth_loss = orth_loss + (reg * sym.abs().sum())
+    for m in model.modules():
+        if isinstance(m, nn.LSTM):
+            with torch.enable_grad():
+                orth_loss = torch.zeros(1)
+                orth_loss = orth_loss.cuda()
+                for name, param in m.named_parameters():
+                    if 'bias' not in name:
+                        param_flat = param.view(param.shape[0], -1)
+                        sym = torch.mm(param_flat, torch.t(param_flat))
+                        sym -= torch.eye(param_flat.shape[0]).cuda()
+                        orth_loss = orth_loss + (reg * sym.abs().sum())
     return orth_loss
 
 def orthogonal_initialization(model):
@@ -155,3 +157,46 @@ def orthogonal_initialization(model):
                 else:
                     init.normal_(param.data)
     return model
+
+
+def predict(decoder_outputs, target_users):
+    decoder_outputs = np.unique(decoder_outputs.flatten())
+    target_users = target_users.flatten()
+    acc = 0
+    # print(decoder_outputs, pred_users)
+    # print('')
+    for val in [0,1,2,3]:
+        found_index = np.in1d(target_users, val).nonzero()[0]
+        target_users = np.delete(target_users, found_index)
+
+    acc = len(target_users[np.in1d(target_users, decoder_outputs)])
+    return acc
+
+
+def confusion(prediction, truth):
+    """ Returns the confusion matrix for the values in the `prediction` and `truth`
+    tensors, i.e. the amount of positions where the values of `prediction`
+    and `truth` are
+    - 1 and 1 (True Positive)
+    - 1 and 0 (False Positive)
+    - 0 and 0 (True Negative)
+    - 0 and 1 (False Negative)
+    """
+
+    confusion_vector = prediction / truth
+    # Element-wise division of the 2 tensors returns a new tensor which holds a
+    # unique value for each case:
+    #   1     where prediction and truth are 1 (True Positive)
+    #   inf   where prediction is 1 and truth is 0 (False Positive)
+    #   nan   where prediction and truth are 0 (True Negative)
+    #   0     where prediction is 0 and truth is 1 (False Negative)
+
+    true_positives = torch.sum(confusion_vector == 1).item()
+    false_positives = torch.sum(confusion_vector == float('inf')).item()
+    true_negatives = torch.sum(torch.isnan(confusion_vector)).item()
+    false_negatives = torch.sum(confusion_vector == 0).item()
+
+    return true_positives, false_positives, true_negatives, false_negatives
+if __name__ == "__main__":
+    acc = predict(np.array([1,2,3,4,5]), np.array([7,1,8,9,3,4,10,5]))
+    print(acc)

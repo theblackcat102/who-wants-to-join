@@ -59,6 +59,28 @@ def create_mapping(df, id_key):
     return data
 
 
+def create_dict_map(maping):
+    data = defaultdict(int)
+    for key, value in TOKENS.items():
+        data[key] = len(data)
+
+    for key, _ in maping.items():
+        data[key] = len(data)
+    return data
+
+def create_user_map(maping):
+    data = defaultdict(int)
+    for key, value in TOKENS.items():
+        data[key] = len(data)
+
+    for _, users in maping.items():
+        for u in users:
+            if u not in data:
+                data[u] = len(data)
+    return data
+
+
+
 def seq_collate(batches):
     max_exists_user = max([len(u[0]) for u in batches ])
     max_pred_user = max([len(u[1]) for u in batches ])
@@ -81,13 +103,14 @@ def seq_collate(batches):
 class Meetupv2(Dataset):
 
     def __init__(self, datapath='./meetup_v2', split_ratio=0.8, sample_ratio=0.5, 
+        order_shuffle=True,
         train=True, query='group', pred_size=100, max_size=5000, min_freq=5, city='nyc'):
         if city not in city_map:
             raise ValueError("Invalid city name")
         self.query = query
         train_str = 'train_' if train else 'test_'
-        cache_path = os.path.join('.cache', self.query+'_freq'+str(min_freq) + '_'+city+'_meetup_v2.1_data_cache.pkl')
-
+        filename = '{}_freq_{}_{}_{}_meetup_v2.1_data_cache.pkl'.format(self.query, min_freq,city, max_size )
+        cache_path = os.path.join('.cache', filename)
         if not os.path.exists(cache_path):
             group = pd.read_csv(os.path.join(datapath, 'groups.csv'))
             group['created'] = pd.to_datetime(group['created'], format="%Y-%m-%d %H:%M:%S")
@@ -102,33 +125,35 @@ class Meetupv2(Dataset):
             members = members[ members['member_id'].isin(valid_member) ]
             members = members[ members['city'].isin(city_map[city]) ]
 
-            group_topics = pd.read_csv(os.path.join(datapath, 'groups_topics.csv'), encoding='latin-1')
-            print('create group2tag')
-            self.group2tag = create_relation(group_topics, 'topic_id', 'group_id')
-            print('create member mapping')
-            self.member_map = create_mapping(members, 'member_id')
-            print('create topic mapping')
-            self.topic_map = create_mapping(group_topics, 'topic_id')
-            print('create group mapping')
-            self.group_map = create_mapping(members, 'group_id')
             print('create group2user')
-
             self.group2user = create_relation(members, 'member_id', 'group_id')
             keys = list(self.group2user.keys())
             for group_id in keys:
                 users = self.group2user[group_id]
-                if len(users) < 4 or len(users) > 500:
+                if len(users) < 10 or len(users) > max_size:
                     self.group2user.pop(group_id, None)
+
+            group_topics = pd.read_csv(os.path.join(datapath, 'groups_topics.csv'), encoding='latin-1')
+            print('create group2tag')
+            self.group2tag = create_relation(group_topics, 'topic_id', 'group_id')
+            print('create member mapping')
+            self.member_map = create_user_map(self.group2user)
+
+            self.member_frequency = member_frequency_
+            print('create topic mapping')
+            self.topic_map = create_mapping(group_topics, 'topic_id')
+            print('create group mapping')
+            self.group_map = create_dict_map(self.group2user)
 
             self.data = group
             self.keys = list(self.group2user.keys())
             random.shuffle(self.keys)
-            cache_data = (self.data, self.group2tag, self.group2user, self.group_map, self.member_map, self.topic_map, self.keys)
+            cache_data = (self.data, self.group2tag, self.group2user, self.group_map, self.member_map, self.topic_map, self.keys, self.member_frequency)
             with open(cache_path, 'wb') as f:
                 pickle.dump(cache_data, f)
         else:
             with open(cache_path, 'rb') as f:
-                (self.data, self.group2tag, self.group2user, self.group_map, self.member_map, self.topic_map, self.keys) = pickle.load(f)
+                (self.data, self.group2tag, self.group2user, self.group_map, self.member_map, self.topic_map, self.keys, self.member_frequency) = pickle.load(f)
 
         self.sample_rate = sample_ratio
         # print(self.data.head())
@@ -138,6 +163,7 @@ class Meetupv2(Dataset):
         else:
             self.data = self.keys[pos:]
         self.max_size = max_size
+        self.order_shuffle = order_shuffle
         # self.data.index = np.arange(len(self.data))
 
     def get_stats(self):
@@ -159,7 +185,7 @@ class Meetupv2(Dataset):
 
         select_rate = self.sample_rate
 
-        existing_users = random.choices(available_user, k=int(select_rate*len(available_user)))
+        existing_users = random.choices(available_user, k=min(int(select_rate*len(available_user)), 1 ) )
         # print(len(available_user), len(existing_users))
         interaction = []
         context_users = []
@@ -171,8 +197,13 @@ class Meetupv2(Dataset):
             if u in pred_users:
                 pred_users.remove(u)
 
-        random.shuffle(existing_users)
-        random.shuffle(pred_users)
+        if self.order_shuffle is False:
+            existing_users.sort(key=lambda x: self.member_frequency[x], reverse=True)
+            pred_users.sort( key=lambda x: self.member_frequency[x], reverse=True)
+        else:
+            random.shuffle(existing_users)
+            random.shuffle(pred_users)
+
         pred_users += ['EOS']
         pred_users_max_size = int(self.max_size*(1-self.sample_rate))
         existing_users_max_size = int(self.max_size*(self.sample_rate))
@@ -350,10 +381,11 @@ if __name__ == "__main__":
     import torch.nn as nn
     criterion = nn.NLLLoss(ignore_index=TOKENS['PAD'])
 
-    test = Meetupv2(train=False, sample_ratio=0.5, query='group', max_size=500, city='nyc', min_freq=10)
-    print(len(test))
-    train = Meetupv2(train=True, sample_ratio=0.5, query='group', max_size=500, city='nyc', min_freq=10)
+    test = Meetupv2(train=False, sample_ratio=0.8, query='group', max_size=500, city='nyc', min_freq=5)
+
+    train = Meetupv2(train=True, sample_ratio=0.8, query='group', max_size=500, city='nyc', min_freq=5)
     print('total: ', len(test)+len(train))
+    print('Test size : {}, Train size : {}'.format(len(test), len(train)))
     print(train.get_stats())
 
     # stats = train.get_stats()
@@ -368,8 +400,8 @@ if __name__ == "__main__":
     # )
     data = DataLoader(train, batch_size=16, num_workers=8, collate_fn=seq_collate)
     for batch in data:
-        existing_users, pred_users, tags = batch
-        print(existing_users.size(1))
+        existing_users, pred_users, cnts, tags = batch
+    #     print(existing_users.size(1),pred_users.size(1))
     #     decoder_outputs, d_h, hidden = model(existing_users, pred_users, tags)
     #     seq_length = decoder_outputs.shape[1]
     #     loss = 0

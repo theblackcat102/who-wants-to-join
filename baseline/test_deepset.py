@@ -6,16 +6,14 @@ import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import argparse
 from .dataset import Meetupv1, Meetupv2, TOKENS, seq_collate
-from .models import Seq2Seq, Seq2SeqwTag
+from .deepset import Deepset, confusion
 from .train import str2bool
-from .utils import orthogonal_initialization, predict, confusion
+from .utils import orthogonal_initialization, predict
 from tqdm import tqdm
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
 from torch.nn.utils import clip_grad_norm
-
-
 
 def extract_checkpoint_files(path):
     highest_epoch = 0
@@ -34,19 +32,20 @@ def load_params(filename):
             params[key] = value
     return params
 
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Evaluation')
     parser.add_argument('--version', type=str, default='version_5')
     parser.add_argument('--epoch', type=int, default=-1)
     parser.add_argument('--topk', type=int, default=1)
     args = parser.parse_args()
-    checkpoint_path = os.path.join('lightning_logs/seq2seq/'+args.version, 'checkpoints')
+    checkpoint_path = os.path.join('lightning_logs/'+args.version, 'checkpoints')
     best_epoch = args.epoch
     if args.epoch < 0:
         best_epoch = extract_checkpoint_files(checkpoint_path)
-    restore_path = 'lightning_logs/seq2seq/{}/checkpoints/_ckpt_epoch_{}.ckpt'.format(args.version, best_epoch)
+    restore_path = 'lightning_logs/{}/checkpoints/_ckpt_epoch_{}.ckpt'.format(args.version, best_epoch)
     checkpoint = torch.load(restore_path)
-    params_f = 'lightning_logs/seq2seq/{}/meta_tags.csv'.format(args.version)
+    params_f = 'lightning_logs/{}/meta_tags.csv'.format(args.version)
     train_params = load_params(params_f)
     dataset = Meetupv2(train=False, sample_ratio=float(train_params['sample_ratio']),
          order_shuffle= str2bool(train_params['order_shuffle'])  if 'order_shuffle' in train_params else True,
@@ -54,22 +53,12 @@ if __name__ == "__main__":
          min_freq = int(train_params['freq']) if 'freq' in train_params else 5)
     stats = dataset.get_stats()
 
-    Model = Seq2Seq
-    if 'model' in train_params and train_params['model'] == 'seq2seqwtag':
-        Model = Seq2SeqwTag
-
-    model = Model(
-        embed_size=int(train_params['user_dim']),
-        vocab_size=int(stats['member'])+3,
-        enc_num_layers=int(train_params['enc_layer']),
-        dec_num_layers=int(train_params['dec_layer']),
-        dropout=0.1,
-        st_mode=False,
-        use_attn=str2bool(train_params['attn']),
-        hidden_size=int(train_params['hidden']),
-        tag_size=int(stats['topic'])+3,
+    model = Deepset(
+        int(stats['member'])+3, 
+        int(train_params['hidden']), 
+        int(train_params['feature'])
     )
-    model.load_state_dict({ key[6:] : value for key, value in checkpoint['state_dict'].items()})
+    model.load_state_dict({ key[6:] : value for key, value in checkpoint['state_dict'].items() if 'l2' not in key})
  
     top_k = args.topk
     model.cuda()
@@ -78,7 +67,10 @@ if __name__ == "__main__":
             batch_size=1, num_workers=1, shuffle=False, collate_fn=seq_collate)
     model.eval()
     device = 'cuda'
-    stats_, match_score, pred_cnt,f1_stats = [], [], [], []
+    
+    stats = []
+
+
     with torch.no_grad():
         pbar = tqdm(dataloader, dynamic_ncols=True)
         for batch in pbar:
@@ -88,48 +80,30 @@ if __name__ == "__main__":
             pred_users = pred_users.cuda()
             tags = tags.cuda()
             pred_users_cnt = pred_users_cnt.cuda()
-
             total_users = pred_users_cnt.sum().item()
             if total_users == 0:
                 continue
-
-
-            decoder_outputs, _ = model.decode(existing_users, 
-                target_length=pred_users.size(1), topk=top_k)
-            # pred_users = pred_users.cpu().numpy()
-            if len(decoder_outputs.flatten()) == 0:
-                continue
-
-            acc = predict(decoder_outputs, pred_users.cpu())
-            pbar.set_description("Match %d" % np.sum(match_score))
-            pred_cnt.append(pred_users_cnt.sum().item())
-            match_score.append(acc)
-            stats_.append(acc / pred_users_cnt.sum().item())
-
-
-            decoder_outputs = torch.from_numpy(decoder_outputs).to(existing_users.device)
-
+            output, _ = model(existing_users)
+            decoder_outputs = ( torch.sigmoid(output) > 0.5 ).long()
+            # print(output[:,:20])
             B = existing_users.shape[0]
-            user_size = int(stats['member'])+3
 
+            user_size = output.size(1)
             y_onehot = torch.FloatTensor(B, user_size)
             y_onehot.zero_()
-            y_onehot = y_onehot.to(existing_users.device)
+            y_onehot = y_onehot.to(pred_users.device)
             y_onehot.scatter_(1, pred_users, 1)
-            y_onehot[:, :4] = 0
+            # print(decoder_outputs.nonzero()[:, 1].shape)
+            # print(existing_users[:,:10], y_onehot[:, pred_users.flatten()],
+            #     pred_users[:, :10], y_onehot[:, :10]
+            # )
 
-            onehot_pred = torch.FloatTensor(B, user_size)
-            onehot_pred.zero_()
-            onehot_pred = onehot_pred.to(existing_users.device)
-            onehot_pred.scatter_(1, decoder_outputs, 1)
-            onehot_pred[:, :4] = 0
-
-            TP, FP, TN, FN = confusion(onehot_pred, y_onehot)
-            f1_stats.append([TP, FP, TN, FN])
-
-    f1_stats = np.array(f1_stats)
-    recall = np.sum(f1_stats[:, 0])/ (np.sum(f1_stats[:, 0])+ np.sum(f1_stats[:, 3]))
-    precision = np.sum(f1_stats[:, 0])/ (np.sum(f1_stats[:, 0])+ np.sum(f1_stats[:, 1]))
+            TP, FP, TN, FN = confusion(decoder_outputs, y_onehot)
+            stats.append([TP, FP, TN, FN])
+    
+    stats = np.array(stats)
+    recall = np.sum(stats[:, 0])/ (np.sum(stats[:, 0])+ np.sum(stats[:, 3]))
+    precision = np.sum(stats[:, 0])/ (np.sum(stats[:, 0])+ np.sum(stats[:, 1]))
 
     if recall != 0:
         f1 = 2*(recall*precision)/(recall+precision)
@@ -138,6 +112,3 @@ if __name__ == "__main__":
         print('F1: ',f1)
     else:
         print('Recall: ',recall)
-
-    print(np.sum(match_score)/np.sum(pred_cnt))
-    print(np.mean(stats_))

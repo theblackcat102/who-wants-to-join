@@ -234,20 +234,21 @@ class Seq2Seq(nn.Module):
         if target_length < 0:
             raise ValueError('decode length must be longer than 0')
 
-        decoder_outputs = []
+        decoder_tokens, decoder_outputs = [], []
         decoder_input = self.embedding(torch.tensor([[TOKENS['BOS']]], device=inputs.device))
         for di in range(target_length):
             outputs, hidden = self.decoder(decoder_input, hidden, 
                 encoder_outputs=latent, temperature=temperature)
             _, topi = outputs.topk(1)
             hidden = hidden[0]
+            decoder_outputs.append(outputs.squeeze(1))
             decoder_input = self.embedding(topi.detach()).squeeze(0)
-            _, topi = outputs.topk(topk)
+            _, topi_ = outputs.topk(topk)
 
-            decoder_outputs.append(topi.cpu().detach().squeeze().numpy())
+            decoder_tokens.append(topi_.cpu().detach().squeeze().numpy().tolist())
             if topi.item() == TOKENS['EOS']:
                 break
-        return np.array(decoder_outputs)
+        return np.array(decoder_tokens), torch.stack(decoder_outputs, dim=1)
 
 class Seq2SeqwTag(nn.Module):
     def __init__(self, embed_size, vocab_size, hidden_size,
@@ -292,7 +293,6 @@ class Seq2SeqwTag(nn.Module):
     def decode(self, inputs, tags=None, temperature=1, target_length=-1, topk=1):
         embed = self.embedding(inputs)
         embed = self.embed_dropout(embed)
-        output_embed = self.embedding(labels)
         latent, hidden = self.encoder(embed)
 
         if tags is not None:
@@ -301,20 +301,21 @@ class Seq2SeqwTag(nn.Module):
             merged_hidden_ = torch.cat((tag_hidden, hidden), axis=-1)
             hidden = self.embed_proj(merged_hidden_)
 
-        decoder_outputs = []
+        decoder_outputs,decoder_tokens = [], []
         decoder_input = self.embedding(torch.tensor([[TOKENS['BOS']]], device=inputs.device))
         for di in range(target_length):
             outputs, hidden = self.decoder(decoder_input, hidden, 
                 encoder_outputs=latent, temperature=temperature)
             _, topi = outputs.topk(1)
             hidden = hidden[0]
+            decoder_outputs.append(outputs.squeeze(1))
             decoder_input = self.embedding(topi.detach()).squeeze(0)
-            _, topi = outputs.topk(topk)
+            _, topi_ = outputs.topk(topk)
 
-            decoder_outputs.append(topi.cpu().detach().squeeze().numpy())
+            decoder_tokens.append(topi_.cpu().detach().squeeze().numpy())
             if topi.item() == TOKENS['EOS']:
                 break
-        return np.array(decoder_outputs)
+        return np.array([decoder_tokens]), torch.stack(decoder_outputs, dim=1)
 
 if __name__ == "__main__":
     encoder = Encoder(128, 128, 2, 0.1, bidirectional=True, cell=nn.LSTM)
@@ -326,7 +327,6 @@ if __name__ == "__main__":
     inputs = torch.randint(0, 46895,(50, 64)) # B x T
     labels = torch.randint(0, 46895,(50, 100)) # B x T
     labels[:, 3:] = TOKENS['PAD']
-
     criterion = nn.NLLLoss(reduction='mean', ignore_index=TOKENS['PAD'])
 
     embed = embedding(inputs)
