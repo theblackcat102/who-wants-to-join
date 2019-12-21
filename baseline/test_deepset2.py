@@ -7,8 +7,7 @@ from torch.utils.data import Dataset, DataLoader
 import argparse
 from .dataset import Meetupv1, SocialDataset, TOKENS, seq_collate
 from .deepset2 import Deepset, confusion
-from .train import str2bool
-from .utils import orthogonal_initialization, predict
+from .deepset2 import str2bool
 from tqdm import tqdm
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer

@@ -198,7 +198,7 @@ class Model(pl.LightningModule):
         return DataLoader(self.dataset, 
             # sampler=self.dist_sampler, 
             collate_fn=seq_collate,
-            batch_size=32, num_workers=4)
+            batch_size=self.hparams.batch_size, num_workers=4)
 
 
 if __name__ == "__main__":
@@ -226,5 +226,5 @@ if __name__ == "__main__":
 
 
     trainer = pl.Trainer(max_nb_epochs=args.max_epochs,min_nb_epochs=args.min_epochs, train_percent_check=0.2, 
-        gpus=[args.gpu], checkpoint_callback=checkpoint_callback)
+        gpus=[args.gpu])
     trainer.fit(model)
