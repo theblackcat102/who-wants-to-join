@@ -32,7 +32,7 @@ class Model(pl.LightningModule):
         self.user_size=stats['member']+3
         self.model = SetTransformer(user_size=self.user_size, 
             hidden=args.hidden, heads=args.heads, layers=args.enc_layer)
-        pos_weight = torch.ones([self.user_size])*2#*(self.user_size//args.freq)
+        pos_weight = torch.ones([self.user_size])#*(self.user_size//args.freq)
         self.l2 = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
     def training_step(self, batch, batch_idx):
@@ -121,12 +121,12 @@ if __name__ == "__main__":
     parser.add_argument('--hidden', type=int, default=64)
     parser.add_argument('--heads', type=int, default=4)
     parser.add_argument('--enc-layer', type=int, default=2)
-    parser.add_argument('--max-epochs', type=int, default=200)
-    parser.add_argument('--min-epochs', type=int, default=100)
+    parser.add_argument('--max-epochs', type=int, default=50)
+    parser.add_argument('--min-epochs', type=int, default=10)
     parser.add_argument('--bce-weight', type=float, default=10)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--sample-ratio', type=float, default=0.8)
-    parser.add_argument('--dataset', type=str, default='acm', choices=['dblp', 'acm'])
+    parser.add_argument('--dataset', type=str, default='acm', choices=['dblp', 'acm', 'amazon', 'lj', 'friendster'])
     parser.add_argument('--max-group', type=int, default=500)
     parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--gpu', type=int, default=0)

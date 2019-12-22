@@ -2,6 +2,7 @@ import torch.nn as nn
 from .blocks import SetAttentionBlock
 from .blocks import InducedSetAttentionBlock
 from .blocks import PoolingMultiheadAttention
+from .models import FactorizedEmbeddings
 
 
 class SetTransformer(nn.Module):
@@ -18,6 +19,9 @@ class SetTransformer(nn.Module):
         h = heads  # number of heads
         k = 4  # number of seed vectors
         self.embeddings = nn.Embedding(user_size, hidden)
+        if user_size > 1e6:
+            self.embeddings = FactorizedEmbeddings(user_size, hidden, hidden//3)
+
         layer = []
         for _ in range(layers):
             layer.append(

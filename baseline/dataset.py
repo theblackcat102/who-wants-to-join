@@ -635,12 +635,14 @@ if __name__ == "__main__":
     # train = AMinerDataset(train=True, sample_ratio=0.8, query='group', max_size=500, dataset='acm', 
     #     min_freq=4)
 
-    test = SocialDataset(train=False, sample_ratio=0.8, query='group', max_size=500, dataset='amazon', 
+    # test = SocialDataset(train=False, sample_ratio=0.8, query='group', max_size=500, dataset='amazon', 
+    #     min_freq=4)
+    train = SocialDataset(train=True, sample_ratio=0.8, query='group', max_size=500, dataset='orkut', 
         min_freq=4)
-    train = SocialDataset(train=True, sample_ratio=0.8, query='group', max_size=500, dataset='friendster', 
-        min_freq=4)
+    print(train.get_stats())
     train = SocialDataset(train=True, sample_ratio=0.8, query='group', max_size=500, dataset='lj', 
         min_freq=4)
+    print(train.get_stats())
 
     # test = Meetupv2(train=False, sample_ratio=0.8, query='group', max_size=500, city='nyc', min_freq=5)
     # train = Meetupv2(train=True, sample_ratio=0.8, query='group', max_size=500, city='nyc', min_freq=5)
