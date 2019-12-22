@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import argparse
-from .dataset import Meetupv1, SocialDataset, TOKENS, seq_collate
+from .dataset import AMinerDataset, TOKENS, seq_collate
 from .deepset2 import Deepset, confusion
 from .deepset2 import str2bool
 from tqdm import tqdm
@@ -46,7 +46,7 @@ if __name__ == "__main__":
     checkpoint = torch.load(restore_path)
     params_f = 'lightning_logs/{}/meta_tags.csv'.format(args.version)
     train_params = load_params(params_f)
-    dataset = SocialDataset(train=False, sample_ratio=float(train_params['sample_ratio']),
+    dataset = AMinerDataset(train=False, sample_ratio=float(train_params['sample_ratio']),
          order_shuffle= str2bool(train_params['order_shuffle'])  if 'order_shuffle' in train_params else True,
          max_size=int(train_params['max_group']), query='group', dataset=str(train_params['dataset']), 
          min_freq = int(train_params['freq']) if 'freq' in train_params else 5)

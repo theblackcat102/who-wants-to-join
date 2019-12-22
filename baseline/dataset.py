@@ -504,6 +504,124 @@ class SocialDataset(Dataset):
         return existing_users, pred_users, pred_users_cnt, self.member_map['PAD']
 
 
+class AMinerDataset(Dataset):
+    def __init__(self, dataset='acm', split_ratio=0.8, sample_ratio=0.5, 
+        order_shuffle=True,
+        train=True, query='group', pred_size=100, max_size=5000, min_size=4, min_freq=4):
+        if dataset not in ['acm', 'dblp']:
+            raise ValueError('Invalid dataset')
+        filename = '{}_{}-{}_{}_cache.pkl'.format( min_freq, max_size, min_size, dataset )
+        cache_path = os.path.join('.cache', filename)
+        if not os.path.exists(cache_path):
+            citation_filename = 'aminer/{}.txt'.format(dataset)
+            group2user = defaultdict(list)
+            members = []
+            with open(citation_filename, 'r') as f:
+                for line in f.readlines():
+                    if '#@' in line:
+                        authors = line.strip().split('#@')[-1].split(',')
+                        if len(authors) < min_size:
+                            continue
+                        group2user[len(group2user)] = authors
+                        members += authors
+
+                member_frequency_ = Counter(members)
+                valid_member = []
+                member_map = defaultdict(int)
+                for key, value in TOKENS.items():
+                    member_map[key] = len(member_map)
+                self.member_frequency = defaultdict(int)
+                for m, frequency in member_frequency_.items():
+                    # print(frequency)
+                    if frequency >= min_freq:
+                        self.member_frequency[m] = frequency
+                        member_map[m] = len(member_map)
+                self.group2user = defaultdict(list)
+                for group_id, members_ in group2user.items():
+                    for m in members_:
+                        if m in member_map and member_map[m] != 0 and member_frequency_[m] > min_freq:
+                            self.group2user[group_id].append(m)
+                #     group2user[group_id] = members_
+                # self.group2user = group2user
+                self.member_map = member_map
+                self.keys = list(self.group2user.keys())
+                random.shuffle(self.keys)
+
+                cache_data = ( self.group2user, self.member_map, self.member_frequency, self.keys )
+            with open(cache_path, 'wb') as f:
+                pickle.dump(cache_data, f)
+        else:
+            with open(cache_path, 'rb') as f:
+                ( self.group2user, self.member_map, self.member_frequency, self.keys ) = pickle.load(f)
+        self.sample_rate = sample_ratio
+        # print(self.data.head())
+        pos = int(split_ratio*len(self.keys))
+        if train:
+            self.data = self.keys[:pos]
+        else:
+            self.data = self.keys[pos:]
+        self.max_size = max_size
+        self.order_shuffle = order_shuffle                                        
+    def get_stats(self):
+        # print(self.keys)
+        stats = []
+        for m, freq in self.member_frequency.items():
+            stats.append(freq)
+        print(np.mean(stats), np.max(stats), np.min(stats))
+
+        return {
+            'member': len(self.member_map),
+        }
+    
+
+    def __len__(self):
+        return len(self.data)
+
+    def __getitem__(self, idx): # iterator to load data
+        # row = self.data.iloc[idx, :]
+        group_id = self.data[idx]#row['group_id']
+        # event = self.data[idx]
+        available_user = self.group2user[group_id]
+
+        select_rate = self.sample_rate
+
+        pred_users = random.choices(available_user, k=max(int((1-select_rate)*len(available_user)), 2 ) )
+        # print(len(available_user), len(existing_users))
+        interaction = []
+        context_users = []
+
+        existing_users = deepcopy(available_user)
+        for u in pred_users:
+            if u in existing_users:
+                existing_users.remove(u)
+
+        if self.order_shuffle is False:
+            existing_users.sort(key=lambda x: self.member_frequency[x], reverse=True)
+            pred_users.sort( key=lambda x: self.member_frequency[x], reverse=True)
+        else:
+            random.shuffle(existing_users)
+            random.shuffle(pred_users)
+
+        pred_users += ['EOS']
+        # print(int(self.max_size*(self.sample_rate)),  int(self.max_size*(1-self.sample_rate)))
+        pred_users_max_size = int(self.max_size*(1-self.sample_rate))
+        existing_users_max_size = int(self.max_size*(self.sample_rate))
+        if len(pred_users) > pred_users_max_size:
+            pred_users = pred_users[:pred_users_max_size-1]
+            pred_users += ['EOS'] # eos
+
+        pred_users_cnt = len(pred_users)-1
+        # pred_users += ['PAD']*(pred_users_max_size - len(pred_users))
+        pred_users = [ self.member_map[e] for e in pred_users]
+        existing_users += ['EOS']
+
+        if len(existing_users) > existing_users_max_size:
+            existing_users = existing_users[:existing_users_max_size-1]
+            existing_users += ['EOS']
+        # existing_users = ['PAD']*(existing_users_max_size - len(existing_users)) + existing_users
+        existing_users = [  self.member_map[e] for e in existing_users]
+
+        return existing_users, pred_users, pred_users_cnt, self.member_map['PAD']
 
 if __name__ == "__main__":
     # from .models import Seq2SeqwTag
@@ -511,10 +629,10 @@ if __name__ == "__main__":
     criterion = nn.NLLLoss(ignore_index=TOKENS['PAD'])
 
 
-    test = SocialDataset(train=False, sample_ratio=0.8, query='group', max_size=500, dataset='youtube', 
-        min_freq=20)
-    train = SocialDataset(train=True, sample_ratio=0.8, query='group', max_size=500, dataset='youtube', 
-        min_freq=20)
+    test = AMinerDataset(train=False, sample_ratio=0.8, query='group', max_size=500, dataset='dblp', 
+        min_freq=5)
+    train = AMinerDataset(train=True, sample_ratio=0.8, query='group', max_size=500, dataset='dblp', 
+        min_freq=5)
 
     # test = Meetupv2(train=False, sample_ratio=0.8, query='group', max_size=500, city='nyc', min_freq=5)
     # train = Meetupv2(train=True, sample_ratio=0.8, query='group', max_size=500, city='nyc', min_freq=5)

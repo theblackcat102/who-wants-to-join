@@ -106,7 +106,7 @@ class Model(pl.LightningModule):
         super(Model, self).__init__()
         self.hparams = args
         self.max_group = args.max_group
-        self.train_dataset = SocialDataset(train=True, 
+        self.train_dataset = AMinerDataset(train=True, 
             order_shuffle=args.order_shuffle,
             sample_ratio=self.hparams.sample_ratio, max_size=args.max_group, dataset=args.dataset,
             query=self.hparams.query, min_freq=args.freq)
@@ -191,7 +191,7 @@ class Model(pl.LightningModule):
 
     @pl.data_loader
     def val_dataloader(self):
-        self.dataset = SocialDataset(train=False,
+        self.dataset = AMinerDataset(train=False,
             order_shuffle=self.hparams.order_shuffle,
             sample_ratio=self.hparams.sample_ratio, min_freq=self.hparams.freq,
             dataset=self.hparams.dataset, max_size=self.max_group, query=self.hparams.query)
@@ -206,7 +206,7 @@ if __name__ == "__main__":
     parser.add_argument('--query', type=str, default='group')
     parser.add_argument('--task', type=str, default='train')
     parser.add_argument('--model', type=str, default='deepset')
-    parser.add_argument('--freq', type=int, default=20, help='user exists minimal frequency')
+    parser.add_argument('--freq', type=int, default=4, help='user exists minimal frequency')
     parser.add_argument('--order-shuffle', type=str2bool, default=True)
     parser.add_argument('--hidden', type=int, default=64)
     parser.add_argument('--feature', type=int, default=64)
@@ -215,8 +215,8 @@ if __name__ == "__main__":
     parser.add_argument('--min-epochs', type=int, default=100)
     parser.add_argument('--bce-weight', type=float, default=10)
     parser.add_argument('--lr', type=float, default=1e-4)
-    parser.add_argument('--sample-ratio', type=float, default=0.9)
-    parser.add_argument('--dataset', type=str, default='amazon', choices=['amazon', 'orkut', 'lj','friendster', 'youtube'])
+    parser.add_argument('--sample-ratio', type=float, default=0.8)
+    parser.add_argument('--dataset', type=str, default='acm', choices=['dblp', 'acm'])
     parser.add_argument('--max-group', type=int, default=500)
     parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--gpu', type=int, default=0)
