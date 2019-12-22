@@ -398,7 +398,7 @@ class SocialDataset(Dataset):
                 for line in f.readlines():
                     members_ = line.strip().split('\t')
                     members_ = [  m.strip() for m in members_ ]
-                    if len(members_) >= min_size and len(members_) <= max_size:
+                    if len(members_) >= min_size:
                         group2user[len(group2user) ] = members_
                         members += members_
                 
@@ -520,34 +520,36 @@ class AMinerDataset(Dataset):
                 for line in f.readlines():
                     if '#@' in line:
                         authors = line.strip().split('#@')[-1].split(',')
-                        if len(authors) < min_size:
-                            continue
-                        group2user[len(group2user)] = authors
-                        members += authors
+                        if len(authors) >= min_size:
+                            group2user[len(group2user)] = authors
+                            members += authors
 
-                member_frequency_ = Counter(members)
-                valid_member = []
-                member_map = defaultdict(int)
-                for key, value in TOKENS.items():
-                    member_map[key] = len(member_map)
-                self.member_frequency = defaultdict(int)
-                for m, frequency in member_frequency_.items():
-                    # print(frequency)
-                    if frequency >= min_freq:
-                        self.member_frequency[m] = frequency
-                        member_map[m] = len(member_map)
-                self.group2user = defaultdict(list)
-                for group_id, members_ in group2user.items():
-                    for m in members_:
-                        if m in member_map and member_map[m] != 0 and member_frequency_[m] > min_freq:
-                            self.group2user[group_id].append(m)
-                #     group2user[group_id] = members_
-                # self.group2user = group2user
-                self.member_map = member_map
-                self.keys = list(self.group2user.keys())
-                random.shuffle(self.keys)
+            member_frequency_ = Counter(members)
+            valid_member = []
+            member_map = defaultdict(int)
+            for key, value in TOKENS.items():
+                member_map[key] = len(member_map)
+            self.member_frequency = defaultdict(int)
+            for m, frequency in member_frequency_.items():
+                # print(frequency)
+                if frequency >= min_freq:
+                    self.member_frequency[m] = frequency
+                    member_map[m] = len(member_map)
+            self.group2user = defaultdict(list)
+            for group_id, members_ in group2user.items():
+                group_member = []
+                for m in members_:
+                    if m in member_map and member_map[m] != 0:
+                        group_member.append(m)
+                if len(group_member) > min_size:
+                    self.group2user[group_id] = group_member
+            #     group2user[group_id] = members_
+            # self.group2user = group2user
+            self.member_map = member_map
+            self.keys = list(self.group2user.keys())
+            random.shuffle(self.keys)
 
-                cache_data = ( self.group2user, self.member_map, self.member_frequency, self.keys )
+            cache_data = ( self.group2user, self.member_map, self.member_frequency, self.keys )
             with open(cache_path, 'wb') as f:
                 pickle.dump(cache_data, f)
         else:
@@ -620,7 +622,6 @@ class AMinerDataset(Dataset):
             existing_users += ['EOS']
         # existing_users = ['PAD']*(existing_users_max_size - len(existing_users)) + existing_users
         existing_users = [  self.member_map[e] for e in existing_users]
-
         return existing_users, pred_users, pred_users_cnt, self.member_map['PAD']
 
 if __name__ == "__main__":
@@ -629,10 +630,17 @@ if __name__ == "__main__":
     criterion = nn.NLLLoss(ignore_index=TOKENS['PAD'])
 
 
-    test = AMinerDataset(train=False, sample_ratio=0.8, query='group', max_size=500, dataset='dblp', 
-        min_freq=5)
-    train = AMinerDataset(train=True, sample_ratio=0.8, query='group', max_size=500, dataset='dblp', 
-        min_freq=5)
+    # test = AMinerDataset(train=False, sample_ratio=0.8, query='group', max_size=500, dataset='acm', 
+    #     min_freq=4)
+    # train = AMinerDataset(train=True, sample_ratio=0.8, query='group', max_size=500, dataset='acm', 
+    #     min_freq=4)
+
+    test = SocialDataset(train=False, sample_ratio=0.8, query='group', max_size=500, dataset='amazon', 
+        min_freq=4)
+    train = SocialDataset(train=True, sample_ratio=0.8, query='group', max_size=500, dataset='friendster', 
+        min_freq=4)
+    train = SocialDataset(train=True, sample_ratio=0.8, query='group', max_size=500, dataset='lj', 
+        min_freq=4)
 
     # test = Meetupv2(train=False, sample_ratio=0.8, query='group', max_size=500, city='nyc', min_freq=5)
     # train = Meetupv2(train=True, sample_ratio=0.8, query='group', max_size=500, city='nyc', min_freq=5)
@@ -651,9 +659,9 @@ if __name__ == "__main__":
     #     st_mode=False,
     #     use_attn=True
     # )
-    # data = DataLoader(train, batch_size=16, num_workers=8, collate_fn=seq_collate)
-    # for batch in data:
-    #     existing_users, pred_users, cnts = batch
+    data = DataLoader(train, batch_size=16, num_workers=8, collate_fn=seq_collate)
+    for batch in data:
+        existing_users, pred_users, cnts = batch
     #     print(pred_users[:2])
     #     break
     #     print(existing_users.size(1),pred_users.size(1))
