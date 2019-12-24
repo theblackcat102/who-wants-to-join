@@ -79,6 +79,19 @@ def create_user_map(maping):
                 data[u] = len(data)
     return data
 
+def load_embeddings(filename):
+    embeddings = {}
+    with open(filename, 'r') as f:
+        for idx, line in enumerate(f.readlines()):
+            if idx == 0:
+                size, dims = line.split(' ')                
+            else:
+                embed = line.split(' ')
+                key = int(embed[0])
+                embedding = [ float(v) for v in embed[1:] ]
+                embeddings[key] = embedding
+    return embeddings, int(size), int(dims)
+
 
 
 def seq_collate(batches):
@@ -420,8 +433,6 @@ class SocialDataset(Dataset):
                     for m in members_:
                         if m in member_map and member_map[m] != 0 and member_frequency_[m] > min_freq:
                             self.group2user[group_id].append(m)
-                #     group2user[group_id] = members_
-                # self.group2user = group2user
                 self.member_map = member_map
                 self.keys = list(self.group2user.keys())
                 random.shuffle(self.keys)
@@ -441,6 +452,14 @@ class SocialDataset(Dataset):
             self.data = self.keys[pos:]
         self.max_size = max_size
         self.order_shuffle = order_shuffle
+        self.embedding = None
+        if os.path.exists('{}/{}.rand.embeddings'.format(dataset, dataset)) and train:
+            print('found embeddings')
+            embeddings_dict, _, dimension = load_embeddings('{}/{}.rand.embeddings'.format(dataset, dataset))
+            embedding = np.zeros((len(self.member_map), dimension))
+            for key, vector in embeddings_dict.items():
+                embedding[self.member_map[key], :] = np.array(vector)
+            self.embedding = embedding
 
     def get_stats(self):
         # print(self.keys)
@@ -465,7 +484,7 @@ class SocialDataset(Dataset):
 
         select_rate = self.sample_rate
 
-        pred_users = random.choices(available_user, k=max(int((1-select_rate)*len(available_user)), 2 ) )
+        pred_users = random.choices(available_user, k=max(int((1-select_rate)*len(available_user)), 1 ) )
         # print(len(available_user), len(existing_users))
         interaction = []
         context_users = []
@@ -587,7 +606,7 @@ class AMinerDataset(Dataset):
 
         select_rate = self.sample_rate
 
-        pred_users = random.choices(available_user, k=max(int((1-select_rate)*len(available_user)), 2 ) )
+        pred_users = random.choices(available_user, k=max(int((1-select_rate)*len(available_user)), 1 ) )
         # print(len(available_user), len(existing_users))
         interaction = []
         context_users = []
@@ -637,19 +656,19 @@ if __name__ == "__main__":
 
     # test = SocialDataset(train=False, sample_ratio=0.8, query='group', max_size=500, dataset='amazon', 
     #     min_freq=4)
-    train = SocialDataset(train=True, sample_ratio=0.8, query='group', max_size=500, dataset='orkut', 
-        min_freq=4)
-    print(train.get_stats())
-    train = SocialDataset(train=True, sample_ratio=0.8, query='group', max_size=500, dataset='lj', 
-        min_freq=4)
-    print(train.get_stats())
+    train = SocialDataset(train=True, sample_ratio=0.8, query='group', max_size=500, dataset='amazon', 
+        min_freq=10)
+    # print(train.get_stats())
+    # train = SocialDataset(train=True, sample_ratio=0.8, query='group', max_size=500, dataset='lj', 
+    #     min_freq=4)
+    # print(train.get_stats())
 
     # test = Meetupv2(train=False, sample_ratio=0.8, query='group', max_size=500, city='nyc', min_freq=5)
     # train = Meetupv2(train=True, sample_ratio=0.8, query='group', max_size=500, city='nyc', min_freq=5)
-    print('total: ', len(test)+len(train))
-    print('Test size : {}, Train size : {}'.format(len(test), len(train)))
-    print(train.get_stats())
-    print(test.get_stats())
+    # print('total: ', len(test)+len(train))
+    # print('Test size : {}, Train size : {}'.format(len(test), len(train)))
+    # print(train.get_stats())
+    # print(test.get_stats())
 
     # stats = train.get_stats()
     # model = Seq2SeqwTag(
@@ -664,6 +683,8 @@ if __name__ == "__main__":
     data = DataLoader(train, batch_size=16, num_workers=8, collate_fn=seq_collate)
     for batch in data:
         existing_users, pred_users, cnts = batch
+        print(pred_users.cnts)
+        train.sample_rate -= 0.1
     #     print(pred_users[:2])
     #     break
     #     print(existing_users.size(1),pred_users.size(1))

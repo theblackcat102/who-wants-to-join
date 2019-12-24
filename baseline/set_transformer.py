@@ -41,7 +41,7 @@ class SetTransformer(nn.Module):
             elif isinstance(m, nn.LayerNorm):
                 nn.init.ones_(m.weight)
                 nn.init.zeros_(m.bias)
-
+        self.dropout = nn.Dropout(0.5)
         self.apply(weights_init)
 
     def forward(self, x):
@@ -54,6 +54,7 @@ class SetTransformer(nn.Module):
 
         x = self.embeddings(x)  # shape [b, n, d]
         x = self.encoder(x)  # shape [b, n, d]
+        X = self.dropout(x)
         x = self.decoder(x)  # shape [b, k, d]
 
         b, k, d = x.shape

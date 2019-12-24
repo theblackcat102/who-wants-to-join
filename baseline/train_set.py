@@ -19,34 +19,45 @@ from pytorch_lightning.callbacks import ModelCheckpoint
 class Model(pl.LightningModule):
     def __init__(self, args):
         super(Model, self).__init__()
-        self.hparams = args
+
         self.max_group = args.max_group
         self.dataset_class = AMinerDataset
         if args.task == 'socnet':
             self.dataset_class = SocialDataset
         self.train_dataset = self.dataset_class(train=True, 
             order_shuffle=args.order_shuffle,
-            sample_ratio=self.hparams.sample_ratio, max_size=args.max_group, dataset=args.dataset,
-            query=self.hparams.query, min_freq=args.freq)
+            sample_ratio=args.sample_ratio, max_size=args.max_group, dataset=args.dataset,
+            query=args.query, min_freq=args.freq)
         stats = self.train_dataset.get_stats()
-        self.user_size=stats['member']+3
+        self.user_size=stats['member']
+        self.sample_ratio = args.sample_ratio
+        self.ratio_raise = args.raising_ratio
+        if self.train_dataset.embedding is not None:
+            args.hidden = self.train_dataset.embedding.shape[-1]
         self.model = SetTransformer(user_size=self.user_size, 
             hidden=args.hidden, heads=args.heads, layers=args.enc_layer)
-        pos_weight = torch.ones([self.user_size])#*(self.user_size//args.freq)
+        if self.train_dataset.embedding is not None:
+            embedding_weight = torch.from_numpy(self.train_dataset.embedding)
+            self.model.embeddings.from_pretrained(embedding_weight)
+
+        pos_weight = torch.ones([self.user_size])*(self.user_size//args.freq)
         self.l2 = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        self.hparams = args
 
     def training_step(self, batch, batch_idx):
-        # REQUIRED
-        existing_users, pred_users, pred_users_cnt = batch        
+        # if self.ratio_raise > 0:
+        #     self.train_dataset.sample_rate = max(1.0 - self.trainer.current_epoch*self.ratio_raise, self.sample_ratio)
+        sample_rate = self.train_dataset.sample_rate
+        existing_users, pred_users, pred_users_cnt = batch
         B = existing_users.shape[0]
         y_onehot = torch.FloatTensor(B, self.user_size)
         output = self.model(existing_users)
         y_onehot.zero_()
         y_onehot = y_onehot.to(pred_users.device)
         y_onehot.scatter_(1, pred_users, 1)
-
+        y_onehot[:, :4] = 0.0
         loss = self.l2(output, y_onehot)
-        tensorboard_logs = {'Loss/train': loss.item(), 'norm_loss/train': loss.item()/B}
+        tensorboard_logs = {'Loss/train': loss.item(), 'norm_loss/train': loss.item()/B,'sample_ratio': sample_rate }
         return {'loss': loss, 'log': tensorboard_logs}
 
     def validation_step(self, batch, batch_idx):
@@ -58,6 +69,7 @@ class Model(pl.LightningModule):
         y_onehot.zero_()
         y_onehot = y_onehot.to(pred_users.device)
         y_onehot.scatter_(1, pred_users, 1)
+        y_onehot[:, :4] = 0.0
         pred_labels = ( torch.sigmoid(output) > 0.5 ).long()
 
         TP, FP, TN, FN = confusion(pred_labels, y_onehot)
@@ -122,11 +134,13 @@ if __name__ == "__main__":
     parser.add_argument('--heads', type=int, default=4)
     parser.add_argument('--enc-layer', type=int, default=2)
     parser.add_argument('--max-epochs', type=int, default=50)
-    parser.add_argument('--min-epochs', type=int, default=10)
+    parser.add_argument('--min-epochs', type=int, default=20)
     parser.add_argument('--bce-weight', type=float, default=10)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--sample-ratio', type=float, default=0.8)
-    parser.add_argument('--dataset', type=str, default='acm', choices=['dblp', 'acm', 'amazon', 'lj', 'friendster'])
+    parser.add_argument('--raising-ratio', type=float, default=0.01)
+    parser.add_argument('--dataset', type=str, default='acm', 
+        choices=['dblp', 'acm', 'amazon', 'lj', 'friendster', 'orkut'])
     parser.add_argument('--max-group', type=int, default=500)
     parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--gpu', type=int, default=0)

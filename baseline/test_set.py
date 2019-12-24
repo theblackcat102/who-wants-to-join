@@ -68,12 +68,11 @@ if __name__ == "__main__":
     model.cuda()
 
     dataloader = DataLoader(dataset, 
-            batch_size=1, num_workers=1, shuffle=False, collate_fn=seq_collate)
+            batch_size=64, num_workers=4, shuffle=False, collate_fn=seq_collate)
     model.eval()
     device = 'cuda'
     
     stats = []
-
 
     with torch.no_grad():
         pbar = tqdm(dataloader, dynamic_ncols=True)
@@ -83,21 +82,29 @@ if __name__ == "__main__":
             existing_users = existing_users.cuda()
             pred_users = pred_users.cuda()
             output = model(existing_users)
-            decoder_outputs = ( torch.sigmoid(output) > 0.5 ).long()
-            # print(output[:,:20])
-            B = existing_users.shape[0]
 
+            B = existing_users.shape[0]
             user_size = output.size(1)
             y_onehot = torch.FloatTensor(B, user_size)
             y_onehot.zero_()
             y_onehot = y_onehot.to(pred_users.device)
             y_onehot.scatter_(1, pred_users, 1)
-            # print(decoder_outputs.nonzero()[:, 1].shape)
+            # print(existing_users[:, :10])
             # print(existing_users[:,:10], y_onehot[:, pred_users.flatten()],
             #     pred_users[:, :10], y_onehot[:, :10]
             # )
 
-            TP, FP, TN, FN = confusion(decoder_outputs, y_onehot)
+            # y_onehot_pred = (torch.sigmoid(output)>0.5).long()
+
+            # print(torch.mean(pred_users_cnt.float()))
+            _, decoder_outputs = torch.topk(output, k=args.topk, dim=-1)
+
+            y_onehot_pred = torch.FloatTensor(B, user_size)
+            y_onehot_pred.zero_()
+            y_onehot_pred = y_onehot_pred.to(decoder_outputs.device)
+            y_onehot_pred.scatter_(1, decoder_outputs, 1)
+
+            TP, FP, TN, FN = confusion(y_onehot_pred, y_onehot)
             stats.append([TP, FP, TN, FN])
     
     stats = np.array(stats)
