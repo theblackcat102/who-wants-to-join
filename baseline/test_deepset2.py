@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import argparse
-from .dataset import Meetupv1, SocialDataset, TOKENS, seq_collate
+from .dataset import SocialDataset, TOKENS, seq_collate
 from .deepset2 import Deepset, confusion
 from .deepset2 import str2bool
 from tqdm import tqdm

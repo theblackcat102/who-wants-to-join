@@ -8,7 +8,7 @@ import argparse
 import random
 from .test import load_params, extract_checkpoint_files
 from .models import FactorizedEmbeddings
-from .dataset import Meetupv1, SocialDataset, AMinerDataset, TOKENS, seq_collate
+from .dataset import SocialDataset, AMinerDataset, TOKENS, seq_collate
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
 from .set_classifier import PermEqui1_max, PermEqui2_max, PermEqui2_mean, PermEqui1_mean

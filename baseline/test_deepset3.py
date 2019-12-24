@@ -5,9 +5,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import argparse
-from .dataset import AMinerDataset, TOKENS, seq_collate
-from .deepset2 import Deepset, confusion
-from .deepset2 import str2bool
+from .dataset import AMinerDataset, TOKENS, seq_collate, SocialDataset
+from .deepset3 import Deepset
+from .utils import confusion, str2bool
 from tqdm import tqdm
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
@@ -46,7 +46,7 @@ if __name__ == "__main__":
     checkpoint = torch.load(restore_path)
     params_f = 'lightning_logs/{}/meta_tags.csv'.format(args.version)
     train_params = load_params(params_f)
-    dataset = AMinerDataset(train=False, sample_ratio=float(train_params['sample_ratio']),
+    dataset = SocialDataset(train=False, sample_ratio=float(train_params['sample_ratio']),
          order_shuffle= str2bool(train_params['order_shuffle'])  if 'order_shuffle' in train_params else True,
          max_size=int(train_params['max_group']), query='group', dataset=str(train_params['dataset']), 
          min_freq = int(train_params['freq']) if 'freq' in train_params else 5)
@@ -78,7 +78,7 @@ if __name__ == "__main__":
             existing_users, pred_users, pred_users_cnt = batch
             existing_users = existing_users.cuda()
             pred_users = pred_users.cuda()
-            output, _ = model(existing_users)
+            output = model(existing_users)
             decoder_outputs = ( torch.sigmoid(output) > 0.5 ).long()
             # print(output[:,:20])
             B = existing_users.shape[0]
@@ -88,7 +88,7 @@ if __name__ == "__main__":
             y_onehot.zero_()
             y_onehot = y_onehot.to(pred_users.device)
             y_onehot.scatter_(1, pred_users, 1)
-            # print(decoder_outputs.nonzero()[:, 1].shape)
+            print(decoder_outputs.nonzero()[:, 1].shape)
             # print(existing_users[:,:10], y_onehot[:, pred_users.flatten()],
             #     pred_users[:, :10], y_onehot[:, :10]
             # )

@@ -6,9 +6,10 @@ import os
 from torch.utils.data import Dataset, DataLoader
 import argparse
 import random
+import math
 from .test import load_params, extract_checkpoint_files
 from .models import FactorizedEmbeddings
-from .dataset import Meetupv1, SocialDataset, AMinerDataset, TOKENS, seq_collate
+from .dataset import SocialDataset, AMinerDataset, TOKENS, seq_collate
 from .utils import str2bool, confusion
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
@@ -42,7 +43,7 @@ class Model(pl.LightningModule):
             self.model.embeddings.from_pretrained(embedding_weight)
             self.model.embeddings.weight.requires_grad=False
 
-        pos_weight = torch.ones([self.user_size])*(self.user_size//args.freq)
+        pos_weight = torch.ones([self.user_size])#*((self.user_size//args.freq)//200)
         self.l2 = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
         self.hparams = args
 
@@ -52,9 +53,10 @@ class Model(pl.LightningModule):
         sample_rate = self.train_dataset.sample_rate
         existing_users, pred_users, pred_users_cnt = batch
         B = existing_users.shape[0]
-        y_onehot = torch.FloatTensor(B, self.user_size)
+        y_onehot = torch.randn((B, self.user_size))*0.05
+
         output = self.model(existing_users)
-        y_onehot.zero_()
+        # y_onehot.zero_()
         y_onehot = y_onehot.to(pred_users.device)
         y_onehot.scatter_(1, pred_users, 1)
         y_onehot[:, :4] = 0.0
@@ -76,13 +78,17 @@ class Model(pl.LightningModule):
 
         TP, FP, TN, FN = confusion(pred_labels, y_onehot)
 
-        recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
-        precision =  0 if (TP+FP) < 1e-5 else TP/(TP+FP)
-
-        if (recall +precision) < 1e-5:
-            f1 = -1
+        if math.isnan(TP):
+            recall, precision, f1 = 0, 0, 0
         else:
-            f1 = 2*(recall*precision)/(recall+precision)
+            recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
+            precision =  0 if (TP+FP) < 1e-5 else TP/(TP+FP)
+
+            if (recall +precision) < 1e-5:
+                f1 = -1
+            else:
+                f1 = 2*(recall*precision)/(recall+precision)
+
         loss = self.l2(output, y_onehot)
 
         return {'val_loss': loss, 'f1': f1, 'recall': recall, 'precision': precision }

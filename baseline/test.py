@@ -5,7 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import argparse
-from .dataset import Meetupv1, Meetupv2, TOKENS
+from .dataset import TOKENS
 from .models import Seq2Seq
 from tqdm import tqdm
 import pytorch_lightning as pl

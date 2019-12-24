@@ -5,16 +5,25 @@ import torch.nn.functional as F
 import os
 from torch.utils.data import Dataset, DataLoader
 import argparse
+import math
 import random
 from .test import load_params, extract_checkpoint_files
 from .models import FactorizedEmbeddings
-from .dataset import Meetupv1, SocialDataset, AMinerDataset, TOKENS, seq_collate
+from .dataset import SocialDataset, AMinerDataset, TOKENS, seq_collate
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
 from .set_classifier import PermEqui1_max, PermEqui2_max, PermEqui2_mean, PermEqui1_mean
 from .utils import confusion, str2bool
 from pytorch_lightning.callbacks import ModelCheckpoint
 
+
+class KL_Loss(nn.Module):
+    def __init__(self):
+        super(KL_Loss, self).__init__()
+        self.kl_loss = nn.KLDivLoss()
+        self.log_sigmoid = nn.LogSigmoid()
+    def forward(self, y_pred, y_true):
+        return self.kl_loss(self.log_sigmoid(y_pred), self.log_sigmoid(y_true))
 
 
 class Deepset(nn.Module):
@@ -29,7 +38,7 @@ class Deepset(nn.Module):
             'mean1': PermEqui1_mean
         }
         proj_fn = pool_functions[pool]
-        self.embedding = nn.Embedding(vocab_size, hidden_size)
+        self.embeddings = nn.Embedding(vocab_size, hidden_size)
 
         self.extractor = nn.Sequential(
             nn.Dropout(0.1),
@@ -52,47 +61,53 @@ class Deepset(nn.Module):
             nn.Linear(hidden_size, vocab_size),
             # nn.Sigmoid(),
         )
-        self.reconstruct = nn.Sequential(
-            nn.Dropout(0.5),
-            nn.Linear(set_features, hidden_size),
-            nn.ELU(inplace=True),
-            nn.Dropout(0.5),
-            # nn.BatchNorm1d(hidden_size),
-            nn.Linear(hidden_size, vocab_size),
-            # nn.Sigmoid(),
-        )
 
     def forward(self, users):
-        output_users = self.embedding(users)
+        output_users = self.embeddings(users)
         latent = self.extractor(output_users)
         latent, _ = latent.max(1)
-        return self.regressor(latent), self.reconstruct(latent)
+        return self.regressor(latent)#, self.reconstruct(latent)
 
 class Model(pl.LightningModule):
     def __init__(self, args):
         super(Model, self).__init__()
         self.hparams = args
         self.max_group = args.max_group
-        self.train_dataset = AMinerDataset(train=True, 
+        self.dataset_class = AMinerDataset
+        if args.task == 'socnet':
+            self.dataset_class = SocialDataset
+
+        self.train_dataset = self.dataset_class(train=True, 
             order_shuffle=args.order_shuffle,
             sample_ratio=self.hparams.sample_ratio, max_size=args.max_group, dataset=args.dataset,
             query=self.hparams.query, min_freq=args.freq)
+
+
         stats = self.train_dataset.get_stats()
         self.user_size=stats['member']+3
         set_features=args.feature
+        if self.train_dataset.embedding is not None:
+            args.hidden = self.train_dataset.embedding.shape[-1]
+
         self.model = Deepset(self.user_size, args.hidden, set_features, pool=args.pool)
-        pos_weight = torch.ones([self.user_size])*500#*(self.user_size//args.freq)
-        self.l2 = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-        # self.l2 = nn.MSELoss()
+        if self.train_dataset.embedding is not None:
+            print('Use pretrained graph embedding')
+            embedding_weight = torch.from_numpy(self.train_dataset.embedding)
+            self.model.embeddings.from_pretrained(embedding_weight)
+            self.model.embeddings.weight.requires_grad=False
+
+        pos_weight = torch.ones([self.user_size])*((self.user_size//args.freq)//700)
+        # self.l2 = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        self.l2 = nn.MultiLabelSoftMarginLoss(weight=pos_weight)#nn.MSELoss()
 
 
     def training_step(self, batch, batch_idx):
-        # REQUIRED
+
         existing_users, pred_users, pred_users_cnt = batch        
         B = existing_users.shape[0]
-        output, exists_output = self.model(existing_users)
-        y_onehot = torch.FloatTensor(B, self.user_size)
-        y_onehot.zero_()
+        output = self.model(existing_users)
+        # y_onehot = torch.FloatTensor(B, self.user_size)
+        y_onehot = torch.randn((B, self.user_size))*0.05
         y_onehot = y_onehot.to(pred_users.device)
         y_onehot.scatter_(1, pred_users, 1)
         y_onehot[:, :4] = 0.0
@@ -102,7 +117,7 @@ class Model(pl.LightningModule):
         y_onehot_input.scatter_(1, existing_users, 1)
         y_onehot_input[:, :4] = 0.0
 
-        loss = self.l2(output, y_onehot) + self.l2(exists_output, y_onehot_input)
+        loss = self.l2(output, y_onehot)# + self.l2(exists_output, y_onehot_input)
         tensorboard_logs = {'Loss/train': loss.item(), 'norm_loss/train': loss.item()/B}
         return {'loss': loss, 'log': tensorboard_logs}
 
@@ -111,44 +126,52 @@ class Model(pl.LightningModule):
 
         B = existing_users.shape[0]
         y_onehot = torch.FloatTensor(B, self.user_size)
-        output, _ = self.model(existing_users)
+        output = self.model(existing_users)
         y_onehot.zero_()
+
         y_onehot = y_onehot.to(pred_users.device)
         y_onehot.scatter_(1, pred_users, 1)
+        y_onehot[:, :4] = 0.0
         pred_labels = ( torch.sigmoid(output) > 0.5 ).long()
 
         TP, FP, TN, FN = confusion(pred_labels, y_onehot)
-
-        recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
-        precision =  0 if (TP+FP) < 1e-5 else TP/(TP+FP)
-
-        if (recall +precision) < 1e-5:
-            f1 = -1
+        if math.isnan(TP):
+            recall, precision, f1 = 0, 0, 0
         else:
-            f1 = 2*(recall*precision)/(recall+precision)
+            recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
+            precision =  0 if (TP+FP) < 1e-5 else TP/(TP+FP)
+
+            if (recall +precision) < 1e-5:
+                f1 = -1
+            else:
+                f1 = 2*(recall*precision)/(recall+precision)
         loss = self.l2(output, y_onehot)
 
-        return {'val_loss': loss, 'f1': f1 }
+        return {'val_loss': loss, 'f1': f1, 'recall': recall, 'precision': precision }
+
 
     def validation_end(self, outputs):
         # OPTIONAL
         avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
         # avg_n_loss = np.array([x['norm_loss'] for x in outputs]).mean()
         avg_acc = np.mean([x['f1'] for x in outputs if x['f1'] > 0])
+        avg_per = np.mean([x['precision'] for x in outputs if x['precision'] > 0])
+        avg_recall = np.mean([x['recall'] for x in outputs if x['recall'] > 0])
         tensorboard_logs = {
             'Loss/val': avg_loss.item(), 
-            'F1/val': avg_acc, 
+            'Val/F1': avg_acc, 
+            'Val/Recall': avg_recall,
+            'Val/Precision': avg_per,
             'val_loss': avg_loss.item(), 
             # 'norm_loss/train': avg_n_loss.item()
         }
-
         return {'avg_val_loss': avg_loss, 'log': tensorboard_logs}
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(self.model.parameters(), 
             lr=self.hparams.lr, weight_decay=1e-5)
-        scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
-        return [optimizer], [scheduler]
+        # scheduler = torch.optim.lr_scheduler.ExponentialLR(optimizer, gamma=0.95)
+        return [optimizer]#, [scheduler]
 
     @pl.data_loader
     def train_dataloader(self):
@@ -158,7 +181,7 @@ class Model(pl.LightningModule):
 
     @pl.data_loader
     def val_dataloader(self):
-        self.dataset = AMinerDataset(train=False,
+        self.dataset = self.dataset_class(train=False,
             order_shuffle=self.hparams.order_shuffle,
             sample_ratio=self.hparams.sample_ratio, min_freq=self.hparams.freq,
             dataset=self.hparams.dataset, max_size=self.max_group, query=self.hparams.query)
@@ -171,19 +194,20 @@ class Model(pl.LightningModule):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Deepset Recommendation Model')
     parser.add_argument('--query', type=str, default='group')
-    parser.add_argument('--task', type=str, default='train')
+    parser.add_argument('--task', type=str, default='academic', choices=['socnet', 'academic'])
     parser.add_argument('--model', type=str, default='deepset')
     parser.add_argument('--freq', type=int, default=4, help='user exists minimal frequency')
     parser.add_argument('--order-shuffle', type=str2bool, default=True)
     parser.add_argument('--hidden', type=int, default=64)
-    parser.add_argument('--feature', type=int, default=64)
-    parser.add_argument('--pool', type=str, default='max', choices=['max1', 'max', 'mean', 'mean1'])
+    parser.add_argument('--feature', type=int, default=32)
+    parser.add_argument('--pool', type=str, default='max1', choices=['max1', 'max', 'mean', 'mean1'])
     parser.add_argument('--max-epochs', type=int, default=200)
     parser.add_argument('--min-epochs', type=int, default=100)
     parser.add_argument('--bce-weight', type=float, default=10)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--sample-ratio', type=float, default=0.8)
-    parser.add_argument('--dataset', type=str, default='acm', choices=['dblp', 'acm'])
+    parser.add_argument('--dataset', type=str, default='acm', 
+        choices=['dblp', 'acm', 'amazon', 'lj', 'friendster', 'orkut'])
     parser.add_argument('--max-group', type=int, default=500)
     parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--gpu', type=int, default=0)
