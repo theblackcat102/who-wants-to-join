@@ -37,8 +37,10 @@ class Model(pl.LightningModule):
         self.model = SetTransformer(user_size=self.user_size, 
             hidden=args.hidden, heads=args.heads, layers=args.enc_layer)
         if self.train_dataset.embedding is not None:
+            print('Use pretrained graph embedding')
             embedding_weight = torch.from_numpy(self.train_dataset.embedding)
             self.model.embeddings.from_pretrained(embedding_weight)
+            self.model.embeddings.weight.requires_grad=False
 
         pos_weight = torch.ones([self.user_size])*(self.user_size//args.freq)
         self.l2 = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
