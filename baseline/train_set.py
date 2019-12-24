@@ -85,16 +85,20 @@ class Model(pl.LightningModule):
             f1 = 2*(recall*precision)/(recall+precision)
         loss = self.l2(output, y_onehot)
 
-        return {'val_loss': loss, 'f1': f1 }
+        return {'val_loss': loss, 'f1': f1, 'recall': recall, 'precision': precision }
 
     def validation_end(self, outputs):
         # OPTIONAL
         avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
         # avg_n_loss = np.array([x['norm_loss'] for x in outputs]).mean()
         avg_acc = np.mean([x['f1'] for x in outputs if x['f1'] > 0])
+        avg_per = np.mean([x['precision'] for x in outputs if x['precision'] > 0])
+        avg_recall = np.mean([x['recall'] for x in outputs if x['recall'] > 0])
         tensorboard_logs = {
             'Loss/val': avg_loss.item(), 
-            'F1/val': avg_acc, 
+            'Val/F1': avg_acc, 
+            'Val/Recall': avg_recall,
+            'Val/Precision': avg_per,
             'val_loss': avg_loss.item(), 
             # 'norm_loss/train': avg_n_loss.item()
         }
