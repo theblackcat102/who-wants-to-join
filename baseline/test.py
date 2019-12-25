@@ -81,6 +81,8 @@ if __name__ == "__main__":
         for batch in tqdm(dataloader, dynamic_ncols=True):
 
             existing_users, pred_users, pred_users_cnt = batch
+            pred_users = pred_users.long()
+            existing_users = existing_users.long()
 
             existing_users = existing_users.transpose(0, 1)
             # pred_users = pred_users.transpose(0, 1)
@@ -97,17 +99,20 @@ if __name__ == "__main__":
                 teacher_forcing_ratio=1.0, max_length=len(pred_users[0]))
 
             _, decoder_outputs_idx = torch.topk(decoder_outputs, k=top_k, dim=-1)
+            # print('result: ',decoder_outputs_idx.flatten(), pred_users.flatten())
 
             y_onehot = torch.FloatTensor(B, user_size)
+            y_onehot.zero_()
             y_pred = decoder_outputs_idx.flatten().unsqueeze(0)
             y_onehot.scatter_(1, y_pred.cpu(), 1)
             y_onehot[:, :4] = 0.0
 
             y_target = torch.FloatTensor(B, user_size)
+            y_target.zero_()
             y_target.scatter_(1, pred_users.cpu(), 1)
             y_target[:, :4] = 0.0
 
-            TP, FP, TN, FN = confusion(y_onehot.long(), y_target.long())
+            TP, FP, TN, FN = confusion(y_onehot.long().float(), y_target.long().float())
             stats.append([TP, FP, TN, FN])
 
     stats = np.array(stats)
