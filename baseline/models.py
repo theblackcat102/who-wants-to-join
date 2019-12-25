@@ -110,7 +110,10 @@ class Seq2Seq(nn.Module):
         _encoder_hidden = self.encoder.initHidden(device=device)
 
         input_length = input_tensor.size(0)
-        target_length = target_tensor.size(0)
+        if self.training:
+            target_length = target_tensor.size(0)
+        else:
+            target_length = max_length
         encoder_outputs = torch.zeros(max_length, self.encoder.hidden_size, device=device)
 
         decoder_loss = 0
@@ -133,7 +136,7 @@ class Seq2Seq(nn.Module):
         if self.training is False:
             use_teacher_forcing = False
 
-        if use_teacher_forcing:
+        if use_teacher_forcing and self.training:
             # Teacher forcing: Feed the target as the next input
             for di in range(target_length):
                 decoder_output, decoder_hidden = self.decoder(
@@ -152,7 +155,7 @@ class Seq2Seq(nn.Module):
                 topv, topi = decoder_output.topk(1)
                 decoder_input = topi.detach().transpose(0, 1)  # detach from history as input
                 # print(decoder_input.shape, decoder_hidden.shape)
-                if self.training:
+                if criterion and target_tensor:
                     decoder_loss += criterion(decoder_output, target_tensor[di])
                 decoder_outputs.append(decoder_output.unsqueeze(0))
 
@@ -160,7 +163,7 @@ class Seq2Seq(nn.Module):
                     break
 
         decoder_outputs = torch.stack(decoder_outputs, dim=0)
-        if self.training:
+        if criterion and target_tensor:
             return decoder_loss, decoder_loss.item() / target_length, decoder_outputs
         return decoder_loss, decoder_loss / target_length, decoder_outputs
 

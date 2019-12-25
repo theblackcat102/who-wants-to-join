@@ -53,7 +53,7 @@ class Baseline(pl.LightningModule):
         pred_users = pred_users.transpose(0, 1)
         
         loss, norm_loss, _ = self.model(existing_users, pred_users, self.criterion, 
-            teacher_forcing_ratio=0.3, device='cuda')
+            teacher_forcing_ratio=self.hparams.teach_ratio, device='cuda')
         
         tensorboard_logs = {'Loss/train': loss.item(), 'norm_loss/train': norm_loss}
         return {'loss': loss, 'log': tensorboard_logs}

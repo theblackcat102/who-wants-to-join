@@ -196,7 +196,7 @@ class SocialDataset(Dataset):
 
             count = 0
             for key, idx in self.member_map.items():
-                if key not in TOKENS:
+                if key not in TOKENS and key in embeddings_dict:
                     count += 1
                     embedding[idx, :] = embeddings_dict[key]
             self.embedding = embedding

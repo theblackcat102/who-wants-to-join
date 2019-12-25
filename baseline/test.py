@@ -69,13 +69,14 @@ if __name__ == "__main__":
             # sampler=self.dist_sampler, 
             collate_fn=seq_collate,
             batch_size=1, num_workers=1, shuffle=False)
-    model.eval()
     criterion = nn.CrossEntropyLoss(ignore_index=TOKENS['PAD'])
     device = 'cuda'
     stats = []
     match_score = []
     pred_cnt = []
     B = 1
+
+    model.eval()
     with torch.no_grad():
         for batch in tqdm(dataloader, dynamic_ncols=True):
 
@@ -92,14 +93,15 @@ if __name__ == "__main__":
             if total_users == 0:
                 continue
             # print(torch.max(existing_users), torch.max(pred_users), torch.max(tags))
-            loss, norm_loss, decoder_outputs = model(existing_users, pred_users, criterion, device=device, 
-                teacher_forcing_ratio=1.0)
+            loss, norm_loss, decoder_outputs = model(existing_users, None, None, device=device, 
+                teacher_forcing_ratio=1.0, max_length=len(pred_users[0]))
+
             _, decoder_outputs_idx = torch.topk(decoder_outputs, k=top_k, dim=-1)
 
             y_onehot = torch.FloatTensor(B, user_size)
             y_pred = decoder_outputs_idx.flatten().unsqueeze(0)
             y_onehot.scatter_(1, y_pred.cpu(), 1)
-            y_onehot[:, :4] = 0.0            
+            y_onehot[:, :4] = 0.0
 
             y_target = torch.FloatTensor(B, user_size)
             y_target.scatter_(1, pred_users.cpu(), 1)
