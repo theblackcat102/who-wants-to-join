@@ -33,7 +33,7 @@ class Baseline(pl.LightningModule):
         stats = self.train_dataset.get_stats()
         if self.train_dataset.embedding is not None:
             args.hidden = self.train_dataset.embedding.shape[-1]
-
+        self.user_size = stats['member']
         self.model = Seq2Seq(
             user_size=stats['member'],
             hidden_size=args.hidden,
@@ -60,6 +60,8 @@ class Baseline(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         existing_users, pred_users, pred_users_cnt = batch
+        B = existing_users.shape[0]
+        user_size = self.user_size
         existing_users = existing_users.transpose(0, 1)
         pred_users = pred_users.transpose(0, 1)
         
@@ -67,25 +69,47 @@ class Baseline(pl.LightningModule):
             teacher_forcing_ratio=self.hparams.teach_ratio, device='cuda')
 
         argmax = torch.argmax(decoder_outputs, dim=-1)
+        argmax = argmax.squeeze(1).transpose(0, 1)
 
-        invalid_targets = pred_users.eq(TOKENS['PAD'])
-        accuracy = argmax.eq(pred_users).masked_fill_(invalid_targets, 0)\
-            .float().sum()/pred_users_cnt.sum()
+        y_onehot = torch.FloatTensor(B, user_size).cuda()
+        y_onehot.zero_()
+
+        y_onehot.scatter_(1, argmax, 1)
+        y_onehot[:, :4] = 0.0
+
+        y_target = torch.FloatTensor(B, user_size).cuda()
+        y_target.zero_()
+        y_target.scatter_(1, pred_users.transpose(0, 1), 1)
+        y_target[:, :4] = 0.0
+
+        TP, FP, TN, FN = confusion(y_onehot, y_target)
+
+        if np.isnan([TP, FP, TN, FN]).any() or TP < 1e-5:
+            recall, precision, f1 = 0, 0, 0
+        else:
+            recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
+            precision =  0 if (TP+FP) < 1e-5 else TP/(TP+FP)
+
+            if (recall +precision) < 1e-5:
+                f1 = -1
+            else:
+                f1 = 2*(recall*precision)/(recall+precision)
 
 
-        return {'val_loss': loss, 'accuracy': accuracy, 'norm_loss': norm_loss}
+        return {'val_loss': loss, 'f1': f1, 'recall': recall, 'precision': precision }
 
     def validation_end(self, outputs):
         # OPTIONAL
         avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
-        # avg_loss = np.mean( [x['val_loss'] for x in outputs] )
-        avg_acc = torch.stack([x['accuracy'] for x in outputs]).mean()
-        norm_loss = np.mean( [x['norm_loss'] for x in outputs] )
+        avg_f1 = np.mean([x['f1'] for x in outputs if x['f1'] > 0])
+        avg_per = np.mean([x['precision'] for x in outputs if x['precision'] > 0])
+        avg_recall = np.mean([x['recall'] for x in outputs if x['recall'] > 0])
 
         tensorboard_logs = {
             'Loss/val': avg_loss, 
-            'avg_acc/val': avg_acc, 
-            'Loss/norm_val': norm_loss,
+            'Val/F1': avg_f1, 
+            'Val/Recall': avg_recall,
+            'Val/Precision': avg_per,
             'val_loss': avg_loss, 
         }
 
