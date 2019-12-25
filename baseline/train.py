@@ -84,16 +84,17 @@ class Baseline(pl.LightningModule):
 
         TP, FP, TN, FN = confusion(y_onehot, y_target)
 
-        if np.isnan([TP, FP, TN, FN]).any() or TP < 1e-5:
-            recall, precision, f1 = 0, 0, 0
-        else:
-            recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
-            precision =  0 if (TP+FP) < 1e-5 else TP/(TP+FP)
+        recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
+        precision =  0 if (TP+FP) < 1e-5 else TP/(TP+FP)
 
-            if (recall +precision) < 1e-5:
-                f1 = -1
-            else:
-                f1 = 2*(recall*precision)/(recall+precision)
+        if (recall +precision) < 1e-5:
+            f1 = -1
+        else:
+            f1 = 2*(recall*precision)/(recall+precision)
+
+        if np.isnan([f1, recall, precision]).any() or np.isnan(f1):
+            recall, precision, f1 = 0, 0, 0
+        
 
 
         return {'val_loss': loss, 'f1': f1, 'recall': recall, 'precision': precision }
