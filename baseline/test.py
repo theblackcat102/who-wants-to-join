@@ -107,7 +107,7 @@ if __name__ == "__main__":
             y_target.scatter_(1, pred_users.cpu(), 1)
             y_target[:, :4] = 0.0
 
-            TP, FP, TN, FN = confusion(y_onehot, y_target)
+            TP, FP, TN, FN = confusion(y_onehot.long(), y_target.long())
             stats.append([TP, FP, TN, FN])
 
     stats = np.array(stats)

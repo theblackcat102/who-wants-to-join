@@ -110,7 +110,7 @@ class Seq2Seq(nn.Module):
         _encoder_hidden = self.encoder.initHidden(device=device)
 
         input_length = input_tensor.size(0)
-        if self.training:
+        if target_tensor is not None:
             target_length = target_tensor.size(0)
         else:
             target_length = max_length
@@ -155,7 +155,7 @@ class Seq2Seq(nn.Module):
                 topv, topi = decoder_output.topk(1)
                 decoder_input = topi.detach().transpose(0, 1)  # detach from history as input
                 # print(decoder_input.shape, decoder_hidden.shape)
-                if criterion and target_tensor:
+                if criterion is not None and target_tensor is not None :
                     decoder_loss += criterion(decoder_output, target_tensor[di])
                 decoder_outputs.append(decoder_output.unsqueeze(0))
 
@@ -163,7 +163,7 @@ class Seq2Seq(nn.Module):
                     break
 
         decoder_outputs = torch.stack(decoder_outputs, dim=0)
-        if criterion and target_tensor:
+        if criterion is not None and target_tensor  is not None:
             return decoder_loss, decoder_loss.item() / target_length, decoder_outputs
         return decoder_loss, decoder_loss / target_length, decoder_outputs
 

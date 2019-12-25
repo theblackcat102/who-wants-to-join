@@ -77,7 +77,8 @@ class Baseline(pl.LightningModule):
 
     def validation_end(self, outputs):
         # OPTIONAL
-        avg_loss = np.mean( [x['val_loss'] for x in outputs] )
+        avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
+        # avg_loss = np.mean( [x['val_loss'] for x in outputs] )
         avg_acc = torch.stack([x['accuracy'] for x in outputs]).mean()
         norm_loss = np.mean( [x['norm_loss'] for x in outputs] )
 
