@@ -93,18 +93,17 @@ class Seq2Seq(nn.Module):
     def __init__(self, user_size, hidden_size, tag_size=966):
         super(Seq2Seq, self).__init__()
         self.encoder = EncoderRNN(user_size+3, hidden_size)
-        self.tag_enc = EncoderRNN(tag_size, hidden_size)
 
-        self.proj = nn.Sequential(
-            nn.Dropout(0.4),
-            # nn.BatchNorm1d(hidden_size*2),
-            nn.Linear(hidden_size*2, hidden_size)
-        )
+        # self.proj = nn.Sequential(
+        #     nn.Dropout(0.4),
+        #     # nn.BatchNorm1d(hidden_size*2),
+        #     nn.Linear(hidden_size*2, hidden_size)
+        # )
 
         self.decoder = DecoderRNN(hidden_size, user_size+3, embedding=self.encoder.embedding)
     
 
-    def forward(self, input_tensor, target_tensor, tag_tensor, criterion, device, max_length=MAX_LENGTH, 
+    def forward(self, input_tensor, target_tensor, criterion, device, max_length=MAX_LENGTH, 
         teacher_forcing_ratio=0.5, mapper=None):
         T, B = input_tensor.shape
         
@@ -117,13 +116,14 @@ class Seq2Seq(nn.Module):
         decoder_loss = 0
         encoder_output, encoder_hidden = self.encoder( input_tensor, _encoder_hidden)
         
-        _, tag_hidden = self.tag_enc(tag_tensor, _encoder_hidden)
+        # _, tag_hidden = self.tag_enc(tag_tensor, _encoder_hidden)
         # print(tag_hidden.shape, encoder_hidden.shape)
 
-        merged_hidden = torch.cat((tag_hidden, encoder_hidden), dim=2)
+        # merged_hidden = torch.cat((tag_hidden, encoder_hidden), dim=2)
         # print(merged_hidden.shape)
-        merged_hidden = self.proj(merged_hidden)
+        # merged_hidden = self.proj(merged_hidden)
         # print(merged_hidden.shape)
+        merged_hidden = encoder_hidden
         decoder_input = torch.tensor([[TOKENS['BOS']]*B], device=device)
         decoder_hidden = merged_hidden#[:, [0], :]
 
@@ -152,47 +152,17 @@ class Seq2Seq(nn.Module):
                 topv, topi = decoder_output.topk(1)
                 decoder_input = topi.detach().transpose(0, 1)  # detach from history as input
                 # print(decoder_input.shape, decoder_hidden.shape)
-                decoder_loss += criterion(decoder_output, target_tensor[di])
+                if self.training:
+                    decoder_loss += criterion(decoder_output, target_tensor[di])
                 decoder_outputs.append(decoder_output.unsqueeze(0))
 
                 if B == 1 and decoder_input[0].item() == TOKENS['EOS']:
                     break
-        # print(decoder_outputs[0].shape)
+
         decoder_outputs = torch.stack(decoder_outputs, dim=0)
-        return decoder_loss, decoder_loss.item() / target_length, decoder_outputs
-
-
-
-class Skipgram(nn.Module):
-    def __init__(self, user_size=46895, user_dim=32):
-        super(Skipgram, self).__init__()
-        self.u_embeddings = nn.Embedding(user_size, user_dim)   
-        self.v_embeddings = nn.Embedding(user_size+3, user_dim) 
-        self.user_dim = user_dim
-        self.init_emb()
-
-    def init_emb(self):
-        initrange = 0.5 / self.user_dim
-        self.u_embeddings.weight.data.uniform_(-initrange, initrange)
-        self.v_embeddings.weight.data.uniform_(-0, 0)
-
-    def forward(self, u_pos, v_pos, batch_size=32):
-        embed_u = self.u_embeddings(u_pos)
-        embed_v = self.v_embeddings(v_pos)
-
-        score  = torch.mul(embed_u, embed_v)
-        score = torch.sum(score, dim=1)
-        log_target = F.logsigmoid(score).squeeze()
-
-        # neg_embed_v = self.v_embeddings(v_neg)
-
-        # neg_score = torch.bmm(neg_embed_v, embed_u.unsqueeze(2)).squeeze()
-        # neg_score = torch.sum(neg_score, dim=1)
-        # sum_log_sampled = F.logsigmoid(-1*neg_score).squeeze()
-
-        loss = log_target# + sum_log_sampled
-
-        return -1*loss.sum()/batch_size
+        if self.training:
+            return decoder_loss, decoder_loss.item() / target_length, decoder_outputs
+        return decoder_loss, decoder_loss / target_length, decoder_outputs
 
 
 if __name__ == "__main__":

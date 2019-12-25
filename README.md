@@ -16,3 +16,10 @@ pip install git+https://github.com/phanein/deepwalk.git
 deepwalk --workers 20  --input lj/com-lj.ungraph.txt --output lj/lj.rand.embeddings
 
 deepwalk --workers 8  --input amazon/com-amazon.ungraph.txt --output amazon/amazon.rand.embeddings --walk-length 40 --window-size 10
+
+deepwalk --workers 8  --input lj/com-lj.ungraph.txt --output lj/lj.rand.embeddings --walk-length 40 --window-size 10
+
+
+Amazon
+
+1. Seq2Seq 

@@ -14,7 +14,9 @@ import pytorch_lightning as pl
 from pytorch_lightning import Trainer
 from .set_classifier import PermEqui1_max, PermEqui2_max, PermEqui2_mean, PermEqui1_mean
 from .utils import confusion, str2bool
+# from .sparse_binary_loss import SparseBinaryWithLogits
 from pytorch_lightning.callbacks import ModelCheckpoint
+from .random_sampler import ImbalancedDatasetSampler
 
 
 class KL_Loss(nn.Module):
@@ -97,8 +99,8 @@ class Model(pl.LightningModule):
             self.model.embeddings.weight.requires_grad=False
 
         pos_weight = torch.ones([self.user_size])*((self.user_size//args.freq)//700)
-        # self.l2 = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-        self.l2 = nn.MultiLabelSoftMarginLoss(weight=pos_weight)#nn.MSELoss()
+        self.l2 = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        # self.l2 = nn.MultiLabelSoftMarginLoss(weight=pos_weight)#nn.MSELoss()
 
 
     def training_step(self, batch, batch_idx):
@@ -177,6 +179,7 @@ class Model(pl.LightningModule):
     def train_dataloader(self):
         return DataLoader(self.train_dataset, 
             # sampler=self.dist_sampler, 
+            sampler=ImbalancedDatasetSampler(self.train_dataset, ),
             batch_size=self.hparams.batch_size, num_workers=10, shuffle=True, collate_fn=seq_collate)
 
     @pl.data_loader

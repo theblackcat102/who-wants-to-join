@@ -5,8 +5,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import argparse
-from .dataset import TOKENS
+from .dataset import AMinerDataset, TOKENS, seq_collate, SocialDataset
 from .models import Seq2Seq
+from .utils import str2bool, confusion
 from tqdm import tqdm
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
@@ -44,14 +45,21 @@ if __name__ == "__main__":
     checkpoint = torch.load(restore_path)
     params_f = 'lightning_logs/{}/meta_tags.csv'.format(args.version)
     train_params = load_params(params_f)
-    dataset = Meetupv2(train=False, sample_ratio=float(train_params['sample_ratio']),
-         max_size=int(train_params['max_group']), query='group', city=str(train_params['city']))
+
+    dataset = SocialDataset(train=False, sample_ratio=float(train_params['sample_ratio']),
+         order_shuffle= str2bool(train_params['order_shuffle'])  if 'order_shuffle' in train_params else True,
+         max_size=int(train_params['max_group']), query='group', dataset=str(train_params['dataset']), 
+         min_freq = int(train_params['freq']) if 'freq' in train_params else 5)
+
+
     print(train_params)
     stats = dataset.get_stats()
     model = Seq2Seq(
-        user_size=stats['member']+3,
-        hidden_size=int(train_params['user_dim']),
+        user_size=stats['member'],
+        hidden_size=int(train_params['hidden']),
         )
+    user_size= stats['member']
+
     model.load_state_dict({ key[6:] : value for key, value in checkpoint['state_dict'].items()})
  
     top_k = args.topk
@@ -59,6 +67,7 @@ if __name__ == "__main__":
 
     dataloader = DataLoader(dataset, 
             # sampler=self.dist_sampler, 
+            collate_fn=seq_collate,
             batch_size=1, num_workers=1, shuffle=False)
     model.eval()
     criterion = nn.CrossEntropyLoss(ignore_index=TOKENS['PAD'])
@@ -66,40 +75,52 @@ if __name__ == "__main__":
     stats = []
     match_score = []
     pred_cnt = []
+    B = 1
     with torch.no_grad():
         for batch in tqdm(dataloader, dynamic_ncols=True):
-            existing_users, pred_users, pred_users_cnt, tags = batch
+
+            existing_users, pred_users, pred_users_cnt = batch
+
             existing_users = existing_users.transpose(0, 1)
-            pred_users = pred_users.transpose(0, 1)
-            tags = tags.transpose(0, 1).long()
+            # pred_users = pred_users.transpose(0, 1)
 
             existing_users = existing_users.cuda()
             pred_users = pred_users.cuda()
-            tags = tags.cuda()
-            pred_users_cnt = pred_users_cnt.cuda()
+            # pred_users_cnt = pred_users_cnt.cuda()
 
             total_users = pred_users_cnt.sum().item()
             if total_users == 0:
                 continue
             # print(torch.max(existing_users), torch.max(pred_users), torch.max(tags))
-            loss, norm_loss, decoder_outputs = model(existing_users, pred_users, tags, criterion, device=device, 
+            loss, norm_loss, decoder_outputs = model(existing_users, pred_users, criterion, device=device, 
                 teacher_forcing_ratio=1.0)
             _, decoder_outputs_idx = torch.topk(decoder_outputs, k=top_k, dim=-1)
 
-            decoder_outputs = decoder_outputs_idx.cpu().numpy()
-            pred_users = pred_users.cpu().numpy()
+            y_onehot = torch.FloatTensor(B, user_size)
+            y_pred = decoder_outputs_idx.flatten().unsqueeze(0)
+            y_onehot.scatter_(1, y_pred.cpu(), 1)
+            y_onehot[:, :4] = 0.0            
 
-            decoder_outputs = np.unique(decoder_outputs.flatten())
-            pred_users = pred_users.flatten()
-            acc = 0
+            y_target = torch.FloatTensor(B, user_size)
+            y_target.scatter_(1, pred_users.cpu(), 1)
+            y_target[:, :4] = 0.0
 
-            for token in decoder_outputs:
-                if token not in [0, 1, 2]:
-                    if token in pred_users:
-                        acc += 1
-            pred_cnt.append(pred_users_cnt.sum().item())
-            match_score.append(acc)
-            stats.append(acc / pred_users_cnt.sum().item())
+            TP, FP, TN, FN = confusion(y_onehot, y_target)
+            stats.append([TP, FP, TN, FN])
+
+    stats = np.array(stats)
+    recall = np.sum(stats[:, 0])/ (np.sum(stats[:, 0])+ np.sum(stats[:, 3]))
+    precision = np.sum(stats[:, 0])/ (np.sum(stats[:, 0])+ np.sum(stats[:, 1]))
+
+    if recall != 0:
+        f1 = 2*(recall*precision)/(recall+precision)
+        accuracy = (np.sum(stats[:, 0]) + np.sum(stats[:, 2]))/ (np.sum(stats))
+        print('Accuracy: ',accuracy)
+        print('Recall: ',recall)
+        print('Precision: ',precision)
+        print('F1: ',f1)
+    else:
+        print('Recall: ',recall)
 
     # print(stats)
     print(np.mean(stats))
