@@ -101,6 +101,10 @@ class Baseline(pl.LightningModule):
 
     def validation_end(self, outputs):
         # OPTIONAL
+        for name, param in self.model.named_parameters():
+            if 'bn' not in name:
+                self.logger.experiment.add_histogram(name, param, self.trainer.current_epoch)
+
         avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
         avg_f1 = np.mean([x['f1'] for x in outputs if x['f1'] > 0])
         avg_per = np.mean([x['precision'] for x in outputs if x['precision'] > 0])

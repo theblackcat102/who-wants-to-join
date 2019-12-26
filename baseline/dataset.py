@@ -123,7 +123,7 @@ def seq_collate(batches):
 
 class SocialDataset(Dataset):
     def __init__(self, dataset='amazon', split_ratio=0.8, sample_ratio=0.5, 
-        order_shuffle=True,
+        order_shuffle=False,
         train=True, query='group', pred_size=100, max_size=5000, min_size=10, min_freq=4):
         if dataset not in ['amazon', 'orkut', 'lj','friendster', 'youtube']:
             raise ValueError('Invalid dataset')
@@ -237,13 +237,14 @@ class SocialDataset(Dataset):
             if u in existing_users:
                 existing_users.remove(u)
 
-        if self.order_shuffle is False:
-            existing_users.sort(key=lambda x: self.member_frequency[x], reverse=True)
-            pred_users.sort( key=lambda x: self.member_frequency[x], reverse=True)
-        else:
-            random.shuffle(existing_users)
-            random.shuffle(pred_users)
-
+        # if self.order_shuffle is False:
+        #     existing_users.sort(key=lambda x: self.member_frequency[x], reverse=True)
+        #     pred_users.sort( key=lambda x: self.member_frequency[x], reverse=True)
+        # else:
+        #     random.shuffle(existing_users)
+        #     random.shuffle(pred_users)
+        existing_users.sort(key=lambda x: self.member_frequency[x], reverse=True)
+        pred_users.sort( key=lambda x: self.member_frequency[x], reverse=True)
         pred_users += ['EOS']
         # print(int(self.max_size*(self.sample_rate)),  int(self.max_size*(1-self.sample_rate)))
         pred_users_max_size = int(self.max_size*(1-self.sample_rate))
@@ -384,6 +385,7 @@ class AMinerDataset(Dataset):
             existing_users += ['EOS']
         # existing_users = ['PAD']*(existing_users_max_size - len(existing_users)) + existing_users
         existing_users = [  self.member_map[e] for e in existing_users]
+
         return existing_users, pred_users, pred_users_cnt, self.member_map['PAD']
 
 if __name__ == "__main__":

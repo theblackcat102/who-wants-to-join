@@ -65,6 +65,10 @@ class Model(pl.LightningModule):
         return {'loss': loss, 'log': tensorboard_logs}
 
     def validation_step(self, batch, batch_idx):
+        for name, param in self.model.named_parameters():
+            if 'bn' not in name:
+                self.logger.experiment.add_histogram(name, param, self.trainer.current_epoch)
+
         existing_users, pred_users, pred_users_cnt = batch        
 
         B = existing_users.shape[0]
