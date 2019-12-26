@@ -16,7 +16,7 @@ from .set_classifier import PermEqui1_max, PermEqui2_max, PermEqui2_mean, PermEq
 from .utils import confusion, str2bool
 # from .sparse_binary_loss import SparseBinaryWithLogits
 from pytorch_lightning.callbacks import ModelCheckpoint
-from .random_sampler import ImbalancedDatasetSampler
+# from .random_sampler import ImbalancedDatasetSampler
 
 
 class KL_Loss(nn.Module):
@@ -137,16 +137,18 @@ class Model(pl.LightningModule):
         pred_labels = ( torch.sigmoid(output) > 0.5 ).long()
 
         TP, FP, TN, FN = confusion(pred_labels, y_onehot)
-        if math.isnan(TP):
-            recall, precision, f1 = 0, 0, 0
-        else:
-            recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
-            precision =  0 if (TP+FP) < 1e-5 else TP/(TP+FP)
 
-            if (recall +precision) < 1e-5:
-                f1 = -1
-            else:
-                f1 = 2*(recall*precision)/(recall+precision)
+        recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
+        precision =  0 if (TP+FP) < 1e-5 else TP/(TP+FP)
+
+        if (recall +precision) < 1e-5:
+            f1 = 0
+        else:
+            f1 = 2*(recall*precision)/(recall+precision)
+
+        if np.isnan([f1, recall, precision]).any() or np.isnan(f1):
+            recall, precision, f1 = 0, 0, 0
+
         loss = self.l2(output, y_onehot)
 
         return {'val_loss': loss, 'f1': f1, 'recall': recall, 'precision': precision }
@@ -179,7 +181,6 @@ class Model(pl.LightningModule):
     def train_dataloader(self):
         return DataLoader(self.train_dataset, 
             # sampler=self.dist_sampler, 
-            sampler=ImbalancedDatasetSampler(self.train_dataset, ),
             batch_size=self.hparams.batch_size, num_workers=10, shuffle=True, collate_fn=seq_collate)
 
     @pl.data_loader

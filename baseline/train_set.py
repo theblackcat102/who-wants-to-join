@@ -60,15 +60,26 @@ class Model(pl.LightningModule):
         y_onehot = y_onehot.to(pred_users.device)
         y_onehot.scatter_(1, pred_users, 1)
         y_onehot[:, :4] = 0.0
-        loss = self.l2(output, y_onehot)
+        loss_1 = self.l2(output, y_onehot)# + self.l2(exists_output, y_onehot_input)
+
+        output = self.model(pred_users)
+        # y_onehot = torch.FloatTensor(B, self.user_size)
+        y_onehot = torch.randn((B, self.user_size))*0.05
+        y_onehot = y_onehot.to(existing_users.device)
+        y_onehot.scatter_(1, existing_users, 1)
+        y_onehot[:, :4] = 0.0
+        y_onehot_input = torch.FloatTensor(B, self.user_size)
+        y_onehot_input.zero_()
+        y_onehot_input = y_onehot_input.to(existing_users.device)
+        y_onehot_input.scatter_(1, existing_users, 1)
+        y_onehot_input[:, :4] = 0.0
+
+        loss_2 = self.l2(output, y_onehot)# + self.l2(exists_output, y_onehot_input)
+        loss = loss_1+loss_2*0.5
         tensorboard_logs = {'Loss/train': loss.item(), 'norm_loss/train': loss.item()/B,'sample_ratio': sample_rate }
         return {'loss': loss, 'log': tensorboard_logs}
 
     def validation_step(self, batch, batch_idx):
-        for name, param in self.model.named_parameters():
-            if 'bn' not in name:
-                self.logger.experiment.add_histogram(name, param, self.trainer.current_epoch)
-
         existing_users, pred_users, pred_users_cnt = batch        
 
         B = existing_users.shape[0]
@@ -82,22 +93,26 @@ class Model(pl.LightningModule):
 
         TP, FP, TN, FN = confusion(pred_labels, y_onehot)
 
-        if math.isnan(TP):
-            recall, precision, f1 = 0, 0, 0
-        else:
-            recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
-            precision =  0 if (TP+FP) < 1e-5 else TP/(TP+FP)
+        recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
+        precision =  0 if (TP+FP) < 1e-5 else TP/(TP+FP)
 
-            if (recall +precision) < 1e-5:
-                f1 = -1
-            else:
-                f1 = 2*(recall*precision)/(recall+precision)
+        if (recall +precision) < 1e-5:
+            f1 = -1
+        else:
+            f1 = 2*(recall*precision)/(recall+precision)
+
+        if np.isnan([f1, recall, precision]).any() or np.isnan(f1):
+            recall, precision, f1 = 0, 0, 0
 
         loss = self.l2(output, y_onehot)
 
         return {'val_loss': loss, 'f1': f1, 'recall': recall, 'precision': precision }
 
     def validation_end(self, outputs):
+        for name, param in self.model.named_parameters():
+            if 'bn' not in name:
+                self.logger.experiment.add_histogram(name, param, self.trainer.current_epoch)
+
         # OPTIONAL
         avg_loss = torch.stack([x['val_loss'] for x in outputs]).mean()
         # avg_n_loss = np.array([x['norm_loss'] for x in outputs]).mean()
