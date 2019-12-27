@@ -125,7 +125,7 @@ class SocialDataset(Dataset):
     def __init__(self, dataset='amazon', split_ratio=0.8, sample_ratio=0.5, 
         order_shuffle=False,
         train=True, query='group', pred_size=100, max_size=5000, min_size=10, min_freq=4):
-        if dataset not in ['amazon', 'orkut', 'lj','friendster', 'youtube']:
+        if dataset not in ['amazon', 'orkut', 'lj','friendster', 'youtube', 'dblp']:
             raise ValueError('Invalid dataset')
         self.query = query
         train_str = 'train_' if train else 'test_'
@@ -159,9 +159,12 @@ class SocialDataset(Dataset):
 
                 self.group2user = defaultdict(list)
                 for group_id, members_ in group2user.items():
+                    members = []
                     for m in members_:
                         if m in member_map and member_map[m] != 0:
-                            self.group2user[group_id].append(m)
+                            members.append(m)
+                    if len(members) > min_size:
+                        self.group2user[group_id] = members
                 self.member_map = member_map
                 self.keys = list(self.group2user.keys())
                 random.shuffle(self.keys)
@@ -224,6 +227,9 @@ class SocialDataset(Dataset):
         group_id = self.data[idx]#row['group_id']
         # event = self.data[idx]
         available_user = self.group2user[group_id]
+        # while len(available_user) <= 3:
+        #     group_id = random.choice(self.data)
+        #     available_user = self.group2user[group_id]
 
         select_rate = self.sample_rate
 
@@ -237,14 +243,12 @@ class SocialDataset(Dataset):
             if u in existing_users:
                 existing_users.remove(u)
 
-        # if self.order_shuffle is False:
-        #     existing_users.sort(key=lambda x: self.member_frequency[x], reverse=True)
-        #     pred_users.sort( key=lambda x: self.member_frequency[x], reverse=True)
-        # else:
-        #     random.shuffle(existing_users)
-        #     random.shuffle(pred_users)
-        existing_users.sort(key=lambda x: self.member_frequency[x], reverse=True)
-        pred_users.sort( key=lambda x: self.member_frequency[x], reverse=True)
+        if self.order_shuffle is False:
+            existing_users.sort(key=lambda x: self.member_frequency[x], reverse=True)
+            pred_users.sort( key=lambda x: self.member_frequency[x], reverse=True)
+        else:
+            random.shuffle(existing_users)
+            random.shuffle(pred_users)
         pred_users += ['EOS']
         # print(int(self.max_size*(self.sample_rate)),  int(self.max_size*(1-self.sample_rate)))
         pred_users_max_size = int(self.max_size*(1-self.sample_rate))
@@ -265,6 +269,29 @@ class SocialDataset(Dataset):
         existing_users = [  self.member_map[e] for e in existing_users]
 
         return existing_users, pred_users, pred_users_cnt, self.member_map['PAD']
+
+class PreSocialDataset(SocialDataset):
+    def __init__(self, dataset='amazon',target_size=200000 ,split_ratio=0.8, sample_ratio=0.5, 
+        order_shuffle=False,
+        train=True, query='group', pred_size=100, max_size=5000, min_size=10, min_freq=4):
+        super(PreSocialDataset, self).__init__(dataset=dataset, split_ratio=split_ratio, sample_ratio=sample_ratio, 
+            order_shuffle=False, train=train, query=query, pred_size=pred_size, max_size=max_size, min_size=min_size, min_freq=min_freq)
+        self.train_dataset = []
+        while len(self.train_dataset) < target_size:
+            for idx in range(super().__len__()):
+                batch = super().__getitem__(idx)
+                if len(batch[0]) > 5:
+                    self.train_dataset.append(batch)
+                if len(self.train_dataset) > target_size:
+                    break
+        random.shuffle(self.train_dataset)
+
+    def __len__(self):
+        return len(self.train_dataset)
+
+    def __getitem__(self, idx):
+        return self.train_dataset[idx]
+
 
 
 class AMinerDataset(Dataset):
@@ -347,6 +374,9 @@ class AMinerDataset(Dataset):
         group_id = self.data[idx]#row['group_id']
         # event = self.data[idx]
         available_user = self.group2user[group_id]
+        while len(available_user) <= 3:
+            group_id = random.choice(self.data)
+            available_user = self.group2user[group_id]            
 
         select_rate = self.sample_rate
 
@@ -401,8 +431,11 @@ if __name__ == "__main__":
 
     # test = SocialDataset(train=False, sample_ratio=0.8, query='group', max_size=500, dataset='amazon', 
     #     min_freq=4)
-    train = SocialDataset(train=True, sample_ratio=0.8, query='group', max_size=500, dataset='amazon', 
-        min_freq=10)
+    train = SocialDataset(train=False, sample_ratio=0.8, query='group', max_size=500, dataset='amazon', 
+        min_freq=5)
+    for group_id, members in train.group2user:
+        print(len(members))
+
     # print(train.get_stats())
     # train = SocialDataset(train=True, sample_ratio=0.8, query='group', max_size=500, dataset='lj', 
     #     min_freq=4)
@@ -425,11 +458,12 @@ if __name__ == "__main__":
     #     st_mode=False,
     #     use_attn=True
     # )
-    data = DataLoader(train, batch_size=16, num_workers=8, collate_fn=seq_collate)
-    for batch in data:
+    data = DataLoader(train, batch_size=1, num_workers=8, collate_fn=seq_collate)
+    for batch in tqdm(data):
         existing_users, pred_users, cnts = batch
-        print(pred_users.cnts)
-        train.sample_rate -= 0.1
+        if len(existing_users.flatten()) < 4:
+            print(existing_users, pred_users)
+
     #     print(pred_users[:2])
     #     break
     #     print(existing_users.size(1),pred_users.size(1))

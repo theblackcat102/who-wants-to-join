@@ -24,4 +24,31 @@ deepwalk --workers 8  --input lj/com-lj.ungraph.txt --output lj/lj.rand.embeddin
 
 Amazon
 
-1. Seq2Seq 
+1. Seq2Seq
+
+Pretrained graph embedding: Deepwalk do cluster similar groups under PCA
+
+    * using pretrain on deepset, set transformer doesnt work ( same issue as before )
+
+    * 64 dim 
+
+Sort by occurance frequency: 
+
+    * No diff on deepset, set transformer ( both model output, input doesn't really rely on sequence order )
+
+    * Lower validation loss non sorted seq2seq version
+
+L2 regularization : No difference test on 1e-5, 1e-3
+
+    * higher validation loss
+
+    * 1e-3 all metrics is nan
+
+
+Presample and train later: sample 20k from training dataset as input and output sequences (similar to how deepwalk implements). 
+    
+    * lower training loss on seq2seq
+
+
+
+

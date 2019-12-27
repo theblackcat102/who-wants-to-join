@@ -58,7 +58,9 @@ class DecoderRNN(nn.Module):
         print('embedding_size ', output_size)
         print('embedding_dim ', hidden_size)
         self.gru = nn.GRU(hidden_size, hidden_size, dropout=0.1)
-        self.out = nn.Linear(hidden_size, output_size)
+        self.out = nn.Sequential(
+            nn.Linear(hidden_size, output_size)
+        )
 
     def forward(self, input, hidden):
 

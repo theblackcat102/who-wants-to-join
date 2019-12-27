@@ -99,7 +99,7 @@ if __name__ == "__main__":
                 teacher_forcing_ratio=1.0, max_length=len(pred_users[0]))
 
             _, decoder_outputs_idx = torch.topk(decoder_outputs, k=top_k, dim=-1)
-            print('result: ',decoder_outputs_idx.flatten(), pred_users.flatten())
+            # print('result: ',decoder_outputs_idx.flatten(), pred_users.flatten())
 
             y_onehot = torch.FloatTensor(B, user_size)
             y_onehot.zero_()

@@ -4,7 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import Dataset, DataLoader
 import argparse
-from .dataset import SocialDataset, AMinerDataset, TOKENS, seq_collate
+from .dataset import SocialDataset, AMinerDataset, PreSocialDataset, TOKENS, seq_collate
 from .models import Seq2Seq
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
@@ -54,7 +54,13 @@ class Baseline(pl.LightningModule):
         
         loss, norm_loss, _ = self.model(existing_users, pred_users, self.criterion, 
             teacher_forcing_ratio=self.hparams.teach_ratio, device='cuda')
-        
+
+        # l2_reg = 0
+        # for W in self.model.parameters():
+        #     if W.requires_grad:
+        #         l2_reg  += torch.sum(torch.abs(W))
+        # loss += self.hparams.l2*l2_reg
+
         tensorboard_logs = {'Loss/train': loss.item(), 'norm_loss/train': norm_loss}
         return {'loss': loss, 'log': tensorboard_logs}
 
@@ -151,7 +157,7 @@ if __name__ == "__main__":
     parser.add_argument('--max-epochs', type=int, default=50)
     parser.add_argument('--min-epochs', type=int, default=30)
     parser.add_argument('--lr', type=float, default=1e-3)
-    parser.add_argument('--freq', type=int, default=4, help='user exists minimal frequency')
+    parser.add_argument('--freq', type=int, default=3, help='user exists minimal frequency')
     parser.add_argument('--order-shuffle', type=str2bool, default=True)
     parser.add_argument('--clip-grad', type=float, default=1.0)
     parser.add_argument('--sample-ratio', type=float, default=0.8, 
@@ -159,6 +165,7 @@ if __name__ == "__main__":
     parser.add_argument('--max-group', type=int, default=120)
     parser.add_argument('--city', type=str, default='nyc', choices=['nyc', 'sf', 'chicago'])
     parser.add_argument('--teach-ratio', type=float, default=0)
+    parser.add_argument('--l2', type=float, default=1e-5)
     parser.add_argument('--batch-size', type=int, default=8)
     parser.add_argument('--dataset', type=str, default='acm', 
         choices=['dblp', 'acm', 'amazon', 'lj', 'friendster', 'orkut'])
