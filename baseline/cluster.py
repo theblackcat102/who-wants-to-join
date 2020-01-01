@@ -13,8 +13,23 @@ import argparse
 from torch.utils.data import Dataset, DataLoader
 from .utils import str2bool, confusion
 from tqdm import tqdm
+import pickle
 
 
+def convert_pkl2txt(filename, outputfilename):
+    print('converting embedding')
+    if os.path.exists(outputfilename):
+        return None
+
+    output_f = open(outputfilename, 'w')
+    with open(filename, 'rb') as f:
+        e = pickle.load(f)
+        matrix = e['embedding']
+        output_f.write('{} {}\n'.format(len(e['name2id']) ,len(matrix[0])))
+        for key, idx in tqdm(e['name2id'].items()):
+            output_f.write('{} '.format(key))
+            output_f.write('{}\n'.format( ' '.join(map(str, list(matrix[idx])) )))
+    output_f.close()
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Nearest Cluster Evaluation')
@@ -23,9 +38,17 @@ if __name__ == "__main__":
     parser.add_argument('--max-size', type=int, default=100)
     parser.add_argument('--sample-ratio', type=float, default=0.8)
     parser.add_argument('--max-group', type=int, default=500)
+    parser.add_argument('--embed-type', type=str, default='txt',choices=['pkl', 'txt'])
+    parser.add_argument('--method', type=str, default='LINE',choices=['LINE', 'DeepWalk', 'node2vec'])
+
 
     args = parser.parse_args()
-    tmp_file = "{}/{}.rand.embeddings".format(args.dataset, args.dataset)
+    if args.embed_type == 'txt':
+        tmp_file = "{}/{}.rand.embeddings".format(args.dataset, args.dataset)
+    else:
+        tmp_file = "graphv/{}.{}.embeddings".format(args.dataset, args.method)
+        convert_pkl2txt( 'graphv/{}-64-{}.pkl'.format(args.dataset, args.method), tmp_file )
+
     print("load key vector")
     model = KeyedVectors.load_word2vec_format(tmp_file)
     print("load validation dataset")
@@ -70,12 +93,14 @@ if __name__ == "__main__":
 
         y_onehot = torch.FloatTensor(B, user_size)
         y_onehot.zero_()
+
         y_pred = pred_users.flatten().unsqueeze(0)
         y_onehot.scatter_(1, y_pred, 1)
         y_onehot[:, :4] = 0.0
 
         y_target = torch.FloatTensor(B, user_size)
         y_target.zero_()
+
         y_target.scatter_(1, target_users, 1)
         y_target[:, :4] = 0.0
 

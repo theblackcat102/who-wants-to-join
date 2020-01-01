@@ -9,6 +9,7 @@ from .dataset import AMinerDataset, TOKENS, seq_collate, SocialDataset
 from .siamese import SiameseSetTransformer
 from .utils import str2bool, confusion
 from tqdm import tqdm
+import time
 import pytorch_lightning as pl
 from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks import ModelCheckpoint
@@ -50,7 +51,7 @@ if __name__ == "__main__":
     dataset_class = AMinerDataset
     if train_params['task'] == 'socnet':
         dataset_class = SocialDataset
-    dataset = dataset_class(train=False, sample_ratio=float(train_params['sample_ratio']),
+    dataset = dataset_class(train=True, sample_ratio=float(train_params['sample_ratio']),
          order_shuffle= str2bool(train_params['order_shuffle'])  if 'order_shuffle' in train_params else True,
          max_size=int(train_params['max_group']), query='group', dataset=str(train_params['dataset']), 
          min_freq = int(train_params['freq']) if 'freq' in train_params else 5)
@@ -89,6 +90,7 @@ if __name__ == "__main__":
         print('calculate predition ranking')
         pbar = tqdm(dataloader, dynamic_ncols=True)
         B = 1
+        start = time.time()
         for batch in pbar:
             # print(len(batch))
             existing_users, target_users, _ = batch
@@ -98,12 +100,10 @@ if __name__ == "__main__":
             group_latent = model.group_latent(existing_users)
             group_latents = group_latent.repeat(users_dim.shape[0], 1)
             distances = (group_latents - users_dim).pow(2).sum(1)
-            pred_users = [ (idx, d.data.cpu().numpy() ) for idx, d in enumerate(distances) ]
-
-            pred_users.sort(key=lambda x:x[1], reverse=False)
-            print(pred_users[:10])
-
-            pred_users = torch.from_numpy(np.array([[ u[0] for u in pred_users[:args.max_size] ]])).long()
+            top_pred_users = torch.argsort(distances)
+            pred_users = top_pred_users[:args.max_size]
+            pred_users = pred_users.cpu()
+            # pred_users = torch.from_numpy(np.array([[ u[0] for u in pred_users[:args.max_size] ]])).long()
 
             y_onehot = torch.FloatTensor(B, user_size)
             y_onehot.zero_()

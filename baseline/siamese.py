@@ -82,8 +82,8 @@ class SiameseSetTransformer(nn.Module):
         h = heads  # number of heads
         k = 4  # number of seed vectors
         self.embeddings = nn.Embedding(user_size, hidden)
-        if user_size > 1e6:
-            self.embeddings = FactorizedEmbeddings(user_size, hidden, hidden//3)
+        # if user_size > 1e6:
+        #     self.embeddings = FactorizedEmbeddings(user_size, hidden, hidden//3)
 
         layer = []
         for _ in range(layers):
@@ -96,8 +96,13 @@ class SiameseSetTransformer(nn.Module):
             SetAttentionBlock(d, h, RFF(d))
         )
         self.proj = nn.Linear(k * d, pred_dim)
+        # self.proj2 = nn.Sequential(
+        #     nn.Linear(hidden, 128),
+        #     nn.ReLU(),
+        #     nn.BatchNorm1d(128),
+        #     nn.Linear(128, pred_dim),
+        # )
         self.proj2 = nn.Linear(hidden, pred_dim)
-
         def weights_init(m):
             if isinstance(m, nn.Linear):
                 nn.init.kaiming_normal_(m.weight)

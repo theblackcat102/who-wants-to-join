@@ -120,7 +120,7 @@ if __name__ == "__main__":
     parser.add_argument('--hidden', type=int, default=64)
     parser.add_argument('--heads', type=int, default=4)
     parser.add_argument('--margin', type=float, default=1.0)
-    parser.add_argument('--enc-layer', type=int, default=2)
+    parser.add_argument('--enc-layer', type=int, default=4)
     parser.add_argument('--max-epochs', type=int, default=100)
     parser.add_argument('--min-epochs', type=int, default=50)
     parser.add_argument('--lr', type=float, default=1e-4)
