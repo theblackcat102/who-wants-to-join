@@ -43,7 +43,7 @@ class Model(pl.LightningModule):
             self.model.embeddings.from_pretrained(embedding_weight)
             self.model.embeddings.weight.requires_grad=False
 
-        pos_weight = torch.ones([self.user_size])#*((self.user_size//args.freq)//200)
+        pos_weight = torch.ones([self.user_size])*((self.user_size//args.freq)//200)
         self.l2 = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
         self.hparams = args
 
@@ -165,7 +165,7 @@ if __name__ == "__main__":
     parser.add_argument('--hidden', type=int, default=64)
     parser.add_argument('--heads', type=int, default=4)
     parser.add_argument('--enc-layer', type=int, default=2)
-    parser.add_argument('--max-epochs', type=int, default=50)
+    parser.add_argument('--max-epochs', type=int, default=100)
     parser.add_argument('--min-epochs', type=int, default=20)
     parser.add_argument('--bce-weight', type=float, default=10)
     parser.add_argument('--lr', type=float, default=1e-4)
@@ -174,7 +174,7 @@ if __name__ == "__main__":
     parser.add_argument('--dataset', type=str, default='acm', 
         choices=['dblp', 'acm', 'amazon', 'lj', 'friendster', 'orkut'])
     parser.add_argument('--max-group', type=int, default=500)
-    parser.add_argument('--batch-size', type=int, default=64)
+    parser.add_argument('--batch-size', type=int, default=16)
     parser.add_argument('--gpu', type=int, default=0)
 
     args = parser.parse_args()

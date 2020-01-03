@@ -185,23 +185,21 @@ class SocialDataset(Dataset):
         self.max_size = max_size
         self.order_shuffle = order_shuffle
         self.embedding = None
-        if os.path.exists('{}/{}.rand.embeddings'.format(dataset, dataset)) and train:
+        if os.path.exists('graphv/{}-64-node2vec.pkl'.format(dataset)) and train:
             print('found embeddings')
             count = 0
             print(list(self.member_map)[:10])
-            embeddings_dict, _, dimension = load_embeddings('{}/{}.rand.embeddings'.format(dataset, dataset))
-            embedding = np.zeros((len(self.member_map), dimension))
+            e = pickle.load(open('graphv/{}-64-node2vec.pkl'.format(dataset), 'rb'))
+            name2id = e['name2id']
+            matrix = e['embedding']
+            embedding = np.zeros((len(self.member_map), len(matrix[0]) ))
             not_matched = []
-            # pickle.load(open('temp.pkl', 'rb'))
-            with open('temp.pkl', 'wb') as f:
-                pickle.dump(embeddings_dict, f)
-            print(len(embeddings_dict))
 
             count = 0
             for key, idx in self.member_map.items():
-                if key not in TOKENS and key in embeddings_dict:
+                if key not in TOKENS and key in name2id:
                     count += 1
-                    embedding[idx, :] = embeddings_dict[key]
+                    embedding[idx, :] = matrix[name2id[key]]
             self.embedding = embedding
 
             print('not matched: ',not_matched[:10])

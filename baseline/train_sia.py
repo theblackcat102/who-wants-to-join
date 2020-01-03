@@ -33,7 +33,6 @@ class Model(pl.LightningModule):
 
         self.user_size=stats['member']
         self.sample_ratio = args.sample_ratio
-        self.ratio_raise = args.raising_ratio
         if self.train_dataset.embedding is not None:
             args.hidden = self.train_dataset.embedding.shape[-1]
         self.model = SiameseSetTransformer(user_size=self.user_size, 
@@ -44,13 +43,14 @@ class Model(pl.LightningModule):
             self.model.embeddings.from_pretrained(embedding_weight)
             self.model.embeddings.weight.requires_grad=False
 
-        self.l2 = ContrastiveLoss(margin=args.margin)
+        self.l2 = ContrastiveLoss(margin=args.margin, 
+            positive_weight=args.pos_ratio, 
+            negative_weight=args.neg_ratio)
+
         self.hparams = args
         self.train_dataset = SiameseDataset(self.train_dataset)
 
     def training_step(self, batch, batch_idx):
-        # if self.ratio_raise > 0:
-        #     self.train_dataset.sample_rate = max(1.0 - self.trainer.current_epoch*self.ratio_raise, self.sample_ratio)
         existing_users, pred_users, labels = batch
 
         group_latent, user_latent = self.model(existing_users, pred_users)
@@ -125,11 +125,12 @@ if __name__ == "__main__":
     parser.add_argument('--min-epochs', type=int, default=50)
     parser.add_argument('--lr', type=float, default=1e-4)
     parser.add_argument('--sample-ratio', type=float, default=0.8)
-    parser.add_argument('--raising-ratio', type=float, default=0.01)
+    parser.add_argument('--pos-ratio', type=float, default=1.0)
+    parser.add_argument('--neg-ratio', type=float, default=5.0)
     parser.add_argument('--dataset', type=str, default='acm', 
         choices=['dblp', 'acm', 'amazon', 'lj', 'friendster', 'orkut'])
     parser.add_argument('--max-group', type=int, default=500)
-    parser.add_argument('--batch-size', type=int, default=64)
+    parser.add_argument('--batch-size', type=int, default=16)
     parser.add_argument('--gpu', type=int, default=0)
 
     args = parser.parse_args()

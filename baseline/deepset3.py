@@ -213,7 +213,7 @@ if __name__ == "__main__":
     parser.add_argument('--dataset', type=str, default='acm', 
         choices=['dblp', 'acm', 'amazon', 'lj', 'friendster', 'orkut'])
     parser.add_argument('--max-group', type=int, default=500)
-    parser.add_argument('--batch-size', type=int, default=64)
+    parser.add_argument('--batch-size', type=int, default=16)
     parser.add_argument('--gpu', type=int, default=0)
 
     args = parser.parse_args()

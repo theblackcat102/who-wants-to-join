@@ -88,7 +88,7 @@ if __name__ == "__main__":
             y_onehot.zero_()
             y_onehot = y_onehot.to(pred_users.device)
             y_onehot.scatter_(1, pred_users, 1)
-            print(decoder_outputs.nonzero()[:, 1].shape)
+            # print(decoder_outputs.nonzero()[:, 1].shape)
             # print(existing_users[:,:10], y_onehot[:, pred_users.flatten()],
             #     pred_users[:, :10], y_onehot[:, :10]
             # )

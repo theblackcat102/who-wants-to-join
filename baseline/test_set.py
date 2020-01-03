@@ -57,7 +57,7 @@ if __name__ == "__main__":
     print(train_params['dataset'])
     print(train_params)
     model = SetTransformer(
-        user_size=int(stats['member'])+3, 
+        user_size=int(stats['member']), 
         hidden=int(train_params['hidden']), 
         heads=int(train_params['heads']),
         layers=int(train_params['enc_layer'])

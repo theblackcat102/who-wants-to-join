@@ -38,6 +38,7 @@ if __name__ == "__main__":
     parser.add_argument('--max-size', type=int, default=100)
     parser.add_argument('--sample-ratio', type=float, default=0.8)
     parser.add_argument('--max-group', type=int, default=500)
+    parser.add_argument('--dim', type=int, default=64)
     parser.add_argument('--embed-type', type=str, default='txt',choices=['pkl', 'txt'])
     parser.add_argument('--method', type=str, default='LINE',choices=['LINE', 'DeepWalk', 'node2vec'])
 
@@ -46,8 +47,8 @@ if __name__ == "__main__":
     if args.embed_type == 'txt':
         tmp_file = "{}/{}.rand.embeddings".format(args.dataset, args.dataset)
     else:
-        tmp_file = "graphv/{}.{}.embeddings".format(args.dataset, args.method)
-        convert_pkl2txt( 'graphv/{}-64-{}.pkl'.format(args.dataset, args.method), tmp_file )
+        tmp_file = "graphv/{}.{}.{}.embeddings".format(args.dataset, args.dim, args.method)
+        convert_pkl2txt( 'graphv/{}-{}-{}.pkl'.format(args.dataset, args.dim,args.method), tmp_file )
 
     print("load key vector")
     model = KeyedVectors.load_word2vec_format(tmp_file)

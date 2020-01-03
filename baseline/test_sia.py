@@ -51,7 +51,7 @@ if __name__ == "__main__":
     dataset_class = AMinerDataset
     if train_params['task'] == 'socnet':
         dataset_class = SocialDataset
-    dataset = dataset_class(train=True, sample_ratio=float(train_params['sample_ratio']),
+    dataset = dataset_class(train=False, sample_ratio=float(train_params['sample_ratio']),
          order_shuffle= str2bool(train_params['order_shuffle'])  if 'order_shuffle' in train_params else True,
          max_size=int(train_params['max_group']), query='group', dataset=str(train_params['dataset']), 
          min_freq = int(train_params['freq']) if 'freq' in train_params else 5)
