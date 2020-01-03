@@ -11,7 +11,19 @@ Users 42,747
 
  13,390 2,705  5.22 4.95# who-wants-to-join
 
+# Setup
+
+virtualenv -p python3.6 env
+
+pip install -r requirements.txt
+
 pip install git+https://github.com/phanein/deepwalk.git
+
+## Download dataset
+
+bash download.sh
+
+## Run Deepwalk pre-training
 
 deepwalk --workers 20  --input lj/com-lj.ungraph.txt --output lj/lj.rand.embeddings
 
@@ -21,6 +33,28 @@ deepwalk --workers 8  --input amazon/com-amazon.ungraph.txt --output amazon/amaz
 
 deepwalk --workers 8  --input lj/com-lj.ungraph.txt --output lj/lj.rand.embeddings --walk-length 40 --window-size 10
 
+
+# Train
+
+### Siamese Network
+
+python -m baseline.train_sia --dataset dblp --task socnet --neg-ratio 5
+
+
+### Seq2Seq
+
+python -m baseline.train --dataset amazon --task socnet
+
+### Deepset
+
+python -m baseline.deepset3 --dataset dblp --task socnet
+
+### Nearest Neighbour
+
+python -m baseline.cluster
+
+
+# Notes
 
 Amazon
 
