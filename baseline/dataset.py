@@ -352,6 +352,7 @@ class AMinerDataset(Dataset):
             self.data = self.keys[pos:]
         self.max_size = max_size
         self.order_shuffle = order_shuffle                                        
+
     def get_stats(self):
         # print(self.keys)
         stats = []
@@ -429,10 +430,10 @@ if __name__ == "__main__":
 
     # test = SocialDataset(train=False, sample_ratio=0.8, query='group', max_size=500, dataset='amazon', 
     #     min_freq=4)
-    train = SocialDataset(train=False, sample_ratio=0.8, query='group', max_size=500, dataset='amazon', 
+    train = SocialDataset(train=False, sample_ratio=0.8, query='group', max_size=500, dataset='dblp', 
         min_freq=5)
-    for group_id, members in train.group2user:
-        print(len(members))
+    # for group_id, members in train.group2user:
+    #     print(len(members))
 
     # print(train.get_stats())
     # train = SocialDataset(train=True, sample_ratio=0.8, query='group', max_size=500, dataset='lj', 
@@ -456,11 +457,22 @@ if __name__ == "__main__":
     #     st_mode=False,
     #     use_attn=True
     # )
+    invert_map = defaultdict(int)
+
+    for key, user_idx in train.member_map.items():
+        invert_map[user_idx] = key
+    print(len(invert_map))
+
     data = DataLoader(train, batch_size=1, num_workers=8, collate_fn=seq_collate)
     for batch in tqdm(data):
         existing_users, pred_users, cnts = batch
-        if len(existing_users.flatten()) < 4:
-            print(existing_users, pred_users)
+        # print(existing_users, pred_users)
+        # print(existing_users.numpy())
+        groups = []
+        for user in pred_users.numpy()[0]:
+            groups.append(invert_map[user])
+        groups.sort()
+        print(groups)
 
     #     print(pred_users[:2])
     #     break

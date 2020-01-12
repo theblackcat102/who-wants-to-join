@@ -33,6 +33,8 @@ deepwalk --workers 8  --input amazon/com-amazon.ungraph.txt --output amazon/amaz
 
 deepwalk --workers 8  --input lj/com-lj.ungraph.txt --output lj/lj.rand.embeddings --walk-length 40 --window-size 10
 
+deepwalk --workers 8  --input youtube/com-youtube.ungraph.txt --output youtube/youtube.rand.embeddings --walk-length 20 --window-size 10
+
 
 # Train
 
@@ -85,4 +87,22 @@ Presample and train later: sample 20k from training dataset as input and output 
 
 
 
+## Code review
+
+
+There maybe some issue with my code?
+
+Bug may lies in : Trainer section /  Dataset / Evaluation method
+
+    * model design shouldn't have issue (just copy from repo)
+
+    * pytorch lightning may not work as intented
+
+    * training loss did lower 
+
+[x] rewrite the trainer code -> result is same ( not pytorch-lightning issue )
+
+[ ] check dataloader code ( pair review with james )
+
+[ ] check F1 evaluation method ( pair review with james ) 
 
