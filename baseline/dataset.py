@@ -298,6 +298,7 @@ class AMinerDataset(Dataset):
         train=True, query='group', pred_size=100, max_size=5000, min_size=4, min_freq=4):
         if dataset not in ['acm', 'dblp']:
             raise ValueError('Invalid dataset')
+        self.dataset = dataset
         filename = '{}_{}-{}_{}_cache.pkl'.format( min_freq, max_size, min_size, dataset )
         cache_path = os.path.join('.cache', filename)
         if not os.path.exists(cache_path):
@@ -308,7 +309,7 @@ class AMinerDataset(Dataset):
                 for line in f.readlines():
                     if '#@' in line:
                         authors = line.strip().split('#@')[-1].split(',')
-                        if len(authors) >= min_size:
+                        if len(authors) >= min_size and len(authors) <= max_size:
                             group2user[len(group2user)] = authors
                             members += authors
 
@@ -350,6 +351,7 @@ class AMinerDataset(Dataset):
             self.data = self.keys[:pos]
         else:
             self.data = self.keys[pos:]
+        self.embedding = None
         self.max_size = max_size
         self.order_shuffle = order_shuffle                                        
 
@@ -417,21 +419,43 @@ class AMinerDataset(Dataset):
 
         return existing_users, pred_users, pred_users_cnt, self.member_map['PAD']
 
+def convert(dataset):
+    import networkx as nx
+    G = nx.Graph()
+    output_result = 'aminer/com-{}-val.ungraph.txt'.format(dataset.dataset, )
+    f_ = open(output_result, 'w')
+
+    for group_id, members in dataset.group2user.items():
+        group_size = len(members)
+        edges = []
+        for idx in range(group_size):
+            for jdx_ in range(group_size - idx - 1):
+                jdx = jdx_ + 1 + idx
+                edges.append((members[idx], members[jdx]))
+                f_.write('{}\t{}'.format(members[idx], members[jdx]))
+        G.add_edges_from(edges)
+    f_.close()
+
 if __name__ == "__main__":
     # from .models import Seq2SeqwTag
-    import torch.nn as nn
-    criterion = nn.NLLLoss(ignore_index=TOKENS['PAD'])
+
+    # import torch.nn as nn
+    # criterion = nn.NLLLoss(ignore_index=TOKENS['PAD'])
 
 
-    # test = AMinerDataset(train=False, sample_ratio=0.8, query='group', max_size=500, dataset='acm', 
-    #     min_freq=4)
-    # train = AMinerDataset(train=True, sample_ratio=0.8, query='group', max_size=500, dataset='acm', 
-    #     min_freq=4)
+    test = AMinerDataset(train=False, sample_ratio=0.8, query='group', max_size=500, dataset='dblp', 
+        min_freq=4)
+    train = AMinerDataset(train=False, sample_ratio=0.8, query='group', max_size=500, dataset='dblp', 
+        min_freq=4)
+    convert(train)
+    train = AMinerDataset(train=False, sample_ratio=0.8, query='group', max_size=500, dataset='acm', 
+        min_freq=4)
+    convert(train)
 
     # test = SocialDataset(train=False, sample_ratio=0.8, query='group', max_size=500, dataset='amazon', 
     #     min_freq=4)
-    train = SocialDataset(train=False, sample_ratio=0.8, query='group', max_size=500, dataset='dblp', 
-        min_freq=5)
+    # train = SocialDataset(train=False, sample_ratio=0.8, query='group', max_size=500, dataset='dblp', 
+    #     min_freq=5)
     # for group_id, members in train.group2user:
     #     print(len(members))
 
