@@ -11,8 +11,22 @@ lightning_logs/
 Meetup_data/
 meetup_v1
 meetup_v2
+amazon/
+dblp/
+lj/
+IDRN/
+test/
+youtube/
+node2vec/
+old_log/
+failed/
+generate/
+graphv/
+aminer/
+friendster/
 Attentive-Group*/
 .cache/
+orkut/
 # Distribution / packaging
 .Python
 build/
