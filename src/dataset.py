@@ -1,10 +1,13 @@
-from torch.utils.data import Dataset, DataLoader
+from torch_geometric.data import DataLoader
 from torch_geometric.data import InMemoryDataset, Data
 import networkx as nx
 import numpy as np
+from collections import defaultdict
+from tqdm import tqdm
+import pickle
 import torch
 from torch.autograd import Variable, Function
-
+import random
 
 def graph2data(G, embeddings):
     matrix = embeddings['embedding']
@@ -31,13 +34,13 @@ def graph2data(G, embeddings):
             new_edges.append([graph_idx[dst], graph_idx[src]  ])
         edges.append(new_edges)
         nodes.append(node_latent.unsqueeze(0))
-        labels.append(G.nodes[n].predict)
+        labels.append(G.nodes[n]['predict'])
     x = torch.stack(nodes)
     y = torch.from_numpy(np.array(labels))
     edges = torch.from_numpy(np.transpose(np.concatenate(edges)))
     return Data(x=x, edge_index=edges, y=y)
 
-def create_sub_graph(G, exist_ratio=0.8, cutoff=2, min_size=2,max_size=1000):
+def create_sub_graph(G, group2member, exist_ratio=0.8, cutoff=2, min_size=2,max_size=1000):
     hit_rate = []
     idx = 0
     groups = []
@@ -79,18 +82,31 @@ def create_sub_graph(G, exist_ratio=0.8, cutoff=2, min_size=2,max_size=1000):
                 if sub_G.has_node(nodes) and sub_G.has_node(n):
                     sub_G.add_edge(nodes, int(n))
         groups.append(sub_G)
+        idx += 1
+        # if idx > 1000:
+        #     break
     return groups
 
 class SNAPCommunity(InMemoryDataset):
 
-    def __init__(self, dataset='amazon'):
+    def __init__(self, dataset='amazon', cutoff=2, ratio=0.8, min_size=2):
         self.dataset = dataset
+        self.cutoff = cutoff
+        self.ratio = ratio
+        self.min_size = min_size
         super(SNAPCommunity, self).__init__('./', transform=None, pre_transform=None)
         self.data, self.slices = torch.load(self.processed_paths[0])
 
     @property
     def processed_file_names(self):
-        return [self.dataset+'.pt']
+        return [self.dataset+str(self.cutoff)+'_'+str(self.ratio)+str(self.min_size)+'.pt']
+    
+    def download(self):
+        print('download')
+
+    @property
+    def raw_file_names(self):
+        return ['some_file_1', 'some_file_2']
 
     def process(self):
         member2group = defaultdict(list)
@@ -132,11 +148,22 @@ class SNAPCommunity(InMemoryDataset):
             if G.has_node(src) and G.has_node(dst):
                 G.add_edge(src, dst)
 
-        sub_graphs = create_sub_graph(G, exist_ratio=0.5, cutoff=2, min_size=2)
-        self.data = [ graph2data(sub) for sub in sub_graphs ]
+        print('populate sub graph')
+
+        sub_graphs = create_sub_graph(G, group2member, exist_ratio=self.ratio, 
+            cutoff=self.cutoff, min_size=self.min_size)
+        self.data = [ graph2data(sub, embeddings) for sub in sub_graphs ]
         data, slices = self.collate(self.data)
-        torch.save((data, slices), self.processed_paths[0])        
+        torch.save((data, slices), self.processed_paths[0])
 
 
 if __name__ == "__main__":
+    from torch_geometric.nn import GCNConv
+    layer = GCNConv(64, 32)
     dataset = SNAPCommunity('amazon')
+    loader = DataLoader(dataset, batch_size=4, shuffle=True)
+    for data in loader:
+        x, edge_index = data.x, data.edge_index
+        output = layer(x, edge_index)
+        print(output.shape)
+        break
