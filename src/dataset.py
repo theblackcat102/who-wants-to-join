@@ -113,7 +113,9 @@ class SNAPCommunity(Dataset):
         with open('{}/com-{}.all.cmty.txt'.format(self.dataset, self.dataset), 'r') as f:
             for line in f.readlines():
                 if '#' not in line and len(line) > 0:
-                    self.group_size += 1
+                    members = line.strip().split('\t')
+                    if len(members) >= self.min_size and len(members) <= max_size:
+                        self.group_size += 1
         print('group size : ', self.group_size)
         self.processed_file_idx = [ idx for idx in range(self.group_size)]
         super(SNAPCommunity, self).__init__('./', transform=None, pre_transform=None)
@@ -272,7 +274,7 @@ if __name__ == "__main__":
     from torch_geometric.nn import GCNConv
     import torch.nn as nn
     layer = GCNConv(64, 1)
-    dataset = SNAPCommunity('amazon', cutoff=2, ratio=0.8)
+    dataset = SNAPCommunity('friendster', cutoff=2, ratio=0.8)
     # dataset[:540]
     class Net(torch.nn.Module):
         def __init__(self):

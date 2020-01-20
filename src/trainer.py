@@ -151,7 +151,7 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description='Deepset Recommendation Model')
     parser.add_argument('--batch-size', type=int, default=64)
-    parser.add_argument('--dataset', type=str, default='amazon', choices=['amazon', 'dblp'])
+    parser.add_argument('--dataset', type=str, default='amazon', choices=['amazon', 'dblp', 'youtube'])
     parser.add_argument('--dropout', type=float, default=0.1)
     parser.add_argument('--layers', type=list, default=[16, 16, 16])
     parser.add_argument('--input-dim', type=int, default=16)
