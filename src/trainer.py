@@ -86,8 +86,17 @@ class GroupGCN():
         B = args.batch_size
         user_size = len(self.train_dataset.user_map)
 
+
+        position_weight = {
+            'amazon': 80,
+            'dblp': 100,
+        }
+        weight = 100 # default
+        if args.dataset in position_weight:
+            weight = position_weight[args.dataset]
         optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=5e-4)
-        pos_weight = torch.ones([1])*80
+        print('weight : ', weight)
+        pos_weight = torch.ones([1])*weight
         pos_weight = pos_weight.cuda()
         criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
@@ -109,7 +118,7 @@ class GroupGCN():
                     pbar.update(1)
                     pbar.set_description("loss {:.4f}".format(loss.item()))
 
-            if epoch % 10 == 0:
+            if epoch % args.eval == 0:
                 print('Epoch: ',epoch)
                 model.eval()
                 recalls = []
@@ -155,6 +164,7 @@ if __name__ == "__main__":
     parser.add_argument('--dropout', type=float, default=0.1)
     parser.add_argument('--layers', type=list, default=[16, 16, 16])
     parser.add_argument('--input-dim', type=int, default=16)
+    parser.add_argument('--eval', type=int, default=10)
 
     args = parser.parse_args()
 

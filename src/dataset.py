@@ -276,7 +276,7 @@ if __name__ == "__main__":
     from torch_geometric.nn import GCNConv
     import torch.nn as nn
     layer = GCNConv(64, 1)
-    dataset = SNAPCommunity('friendster', cutoff=2, ratio=0.8)
+    dataset = SNAPCommunity('dblp', cutoff=2, ratio=0.8)
     # dataset[:540]
     class Net(torch.nn.Module):
         def __init__(self):
@@ -309,7 +309,7 @@ if __name__ == "__main__":
     print(len(dataset))
 
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0005, weight_decay=5e-4)
-    pos_weight = torch.ones([1])*10
+    pos_weight = torch.ones([1])*30
     pos_weight = pos_weight.cuda()
     criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
     loader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=4, )
