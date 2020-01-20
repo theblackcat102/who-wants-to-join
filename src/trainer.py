@@ -45,13 +45,13 @@ class GroupGCN():
         dataset = SNAPCommunity(args.dataset, cutoff=2)
 
         # make sure each runs share the same results
-        if os.path.exists('shuffle_idx.pkl'):
-            with open('shuffle_idx.pkl', 'rb') as f:
+        if os.path.exists(args.dataset+'_shuffle_idx.pkl'):
+            with open(args.dataset+'_shuffle_idx.pkl', 'rb') as f:
                 shuffle_idx = pickle.load(f)
         else:
             shuffle_idx = [ idx for idx in range(len(dataset))]
             random.shuffle(shuffle_idx)
-            with open('shuffle_idx.pkl', 'wb') as f:
+            with open(args.dataset+'_shuffle_idx.pkl', 'wb') as f:
                 pickle.dump(shuffle_idx, f)
 
         dataset = dataset[shuffle_idx]

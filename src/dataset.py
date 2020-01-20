@@ -118,6 +118,14 @@ class SNAPCommunity(Dataset):
                         self.group_size += 1
         print('group size : ', self.group_size)
         self.processed_file_idx = [ idx for idx in range(self.group_size)]
+
+        self.user_map = None
+        embedding_filename = 'graphv/{}-64-DeepWalk.pkl'.format(self.dataset)
+        if os.path.exists(embedding_filename):
+            with open(embedding_filename, 'rb') as f:
+                embeddings = pickle.load(f)
+                self.user_map = embeddings['name2id']
+
         super(SNAPCommunity, self).__init__('./', transform=None, pre_transform=None)
         # self.data, self.slices = torch.load(self.processed_paths[0])
 
@@ -136,12 +144,6 @@ class SNAPCommunity(Dataset):
         return ['some_file_1', 'some_file_2']
 
     def process(self):
-        self.user_map = None
-        embedding_filename = 'graphv/{}-64-DeepWalk.pkl'.format(self.dataset)
-        if os.path.exists(embedding_filename):
-            with open(embedding_filename, 'rb') as f:
-                embeddings = pickle.load(f)
-                self.user_map = embeddings['name2id']
 
         all_found = True
         length = 0
