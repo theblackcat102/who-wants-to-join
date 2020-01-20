@@ -20,6 +20,7 @@ youtube/
 node2vec/
 old_log/
 failed/
+processed/
 generate/
 graphv/
 aminer/
