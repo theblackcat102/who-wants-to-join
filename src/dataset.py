@@ -108,7 +108,6 @@ class SNAPCommunity(Dataset):
         self.min_size = min_size
         self.max_size = max_size
         self.group_size = 0
-        print('group size : ', self.group_size)
         self.processed_file_idx = [idx for idx in range(self.group_size)]
 
         self.user_map = None
@@ -119,10 +118,13 @@ class SNAPCommunity(Dataset):
                 self.user_map = embeddings['name2id']
 
         self.user2id = None
-        if os.path.exists('{}/user2id.pkl'.format(self.dataset)):
-            with open('{}/user2id.pkl'.format(self.dataset), 'rb') as f:
+        dataset_path = osp.join("data", dataset)
+        user2id_filepath = osp.join(dataset_path, "user2id.pkl")
+        group_size_filepath = osp.join(dataset_path, "group_size.pkl")
+        if os.path.exists(user2id_filepath):
+            with open(user2id_filepath, 'rb') as f:
                 user2id = pickle.load(f)
-            with open('{}/group_size.pkl'.format(self.dataset), 'rb') as f:
+            with open(group_size_filepath, 'rb') as f:
                 self.group_size = pickle.load(f)
         else:
             user2id = defaultdict(int)
@@ -130,7 +132,7 @@ class SNAPCommunity(Dataset):
             if self.dataset == "amazon":
                 postfix = ".dedup"
             dataset_filename = "com-{}.all{}.cmty.txt".format(dataset, postfix)
-            self.dataset_filepath = osp.join("data", dataset, dataset_filename)
+            self.dataset_filepath = osp.join(dataset_path, dataset_filename)
             with open(self.dataset_filepath, 'r') as f:
                 for line in f.readlines():
                     if '#' not in line and len(line) > 0:
@@ -140,7 +142,7 @@ class SNAPCommunity(Dataset):
                             self.group_size += 1
 
             ungraph_filepath = osp.join(
-                "data", dataset, "com-{}.ungraph.txt".format(self.dataset))
+                dataset_path, "com-{}.ungraph.txt".format(self.dataset))
             with open(ungraph_filepath, 'r') as f:
                 while True:
                     try:
@@ -157,9 +159,9 @@ class SNAPCommunity(Dataset):
                         if str(m) not in user2id:
                             user2id[str(m)] = len(user2id)
 
-            with open('{}/user2id.pkl'.format(self.dataset), 'wb') as f:
+            with open(user2id_filepath, 'wb') as f:
                 pickle.dump(user2id, f)
-            with open('{}/group_size.pkl'.format(self.dataset), 'wb') as f:
+            with open(group_size_filepath, 'wb') as f:
                 pickle.dump(self.group_size, f)
         self.user2id = user2id
 
