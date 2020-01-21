@@ -1,9 +1,11 @@
+from datetime import datetime
 from src.layers import StackedGCN
 from src.dataset import SNAPCommunity
 from torch_geometric.data import DataLoader
 import random
 from tqdm import tqdm
 import torch
+from torch.utils.tensorboard import SummaryWriter
 import pickle
 import os
 import numpy as np
@@ -67,6 +69,10 @@ class GroupGCN():
         # print(len(self.valid_dataset)+ len(self.train_dataset))
 
         self.args = args
+
+        log_path = os.path.join(
+            "logs", "gcn", datetime.now().strftime("%m-%d-%H-%M-%S"))
+        self.writer = SummaryWriter(log_dir=log_path)
         print('finish init')
 
     def train(self, epochs=200):
@@ -98,6 +104,7 @@ class GroupGCN():
         pos_weight = pos_weight.cuda()
         criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
+        n_iter = 0
         for epoch in range(epochs):
             model.train()
             with tqdm(total=len(train_loader), dynamic_ncols=True) as pbar:
@@ -112,9 +119,11 @@ class GroupGCN():
                     loss.backward()
 
                     optimizer.step()
-
+                    self.writer.add_scalar(
+                        "Train/BCEWithLogitsLoss", loss.item(), n_iter)
                     pbar.update(1)
                     pbar.set_description("loss {:.4f}".format(loss.item()))
+                    n_iter += 1
 
             if epoch % args.eval == 0:
                 print('Epoch: ', epoch)
@@ -148,6 +157,8 @@ class GroupGCN():
                 f1 = (
                     2*(avg_recalls*avg_precisions) /
                     (avg_recalls+avg_precisions))
+                self.writer.add_scalar(
+                        "Valid/F1", f1, n_iter)
                 print(f1)
 
 
