@@ -53,7 +53,7 @@ if __name__ == "__main__":
     print("load key vector")
     model = KeyedVectors.load_word2vec_format(tmp_file)
     print("load validation dataset")
-    dataset = SNAPCommunity(args.dataset, cutoff=3)
+    dataset = SNAPCommunity(args.dataset, cutoff=2)
 
     dataset = dataset[shuffle_idx]
 
@@ -74,7 +74,7 @@ if __name__ == "__main__":
     for key, item in user2id.items():
         id2user[item] = key
     print(id2user[5])
-
+    print('start evaluate')
     B, user_size = 1, len(user2id)
     stats = []
     for data in tqdm(valid_dataset, dynamic_ncols=True):

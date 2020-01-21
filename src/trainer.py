@@ -86,7 +86,6 @@ class GroupGCN():
         B = args.batch_size
         user_size = len(self.train_dataset.user2id)
 
-
         position_weight = {
             'amazon': 80,
             'dblp': 100,
