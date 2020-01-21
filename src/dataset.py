@@ -1,4 +1,3 @@
-import resource
 from copy import deepcopy
 from torch_geometric.data import Dataset, Data, DataLoader
 import networkx as nx
@@ -6,25 +5,21 @@ import numpy as np
 from collections import defaultdict
 from tqdm import tqdm
 from sklearn.metrics import f1_score
-import pickle
 import os.path as osp
-# import os
+import os
 import torch
 from torch.autograd import Variable
 import random
 
+import pickle
+# with open('{}/user2id.pkl'.format('amazon'), 'rb') as f:
+#     user2id = pickle.load(f)
 
-rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
-resource.setrlimit(resource.RLIMIT_NOFILE, (4096, rlimit[1]))
 
-
-def graph2data(G, embeddings):
-    # matrix = embeddings['embedding']
-    name2id = embeddings['name2id']
-    # matrix_dim = len(matrix[0])
+def graph2data(G, name2id):
     graph_idx = {}
 
-    # does the order of index matter?
+    # does the order of sub-graph index matter?
     # seems to me it's relative to one and another?
     for n in G.nodes:
         graph_idx[n] = len(graph_idx)
@@ -59,13 +54,8 @@ def graph2data(G, embeddings):
 
 def create_sub_graph(G, group2member, exist_ratio=0.8, cutoff=2, min_size=2,
                      max_size=1000):
-    hit_rate = []
-    # idx = 0
-    # groups = []
+    # hit_rate = []
     for group_id, members in tqdm(group2member.items(), dynamic_ncols=True):
-        if len(members) < min_size or len(members) > max_size:
-            continue
-
         random.shuffle(members)
         ratio = int(len(members)*exist_ratio)
         predict_ratio = len(members) - ratio
@@ -75,36 +65,38 @@ def create_sub_graph(G, group2member, exist_ratio=0.8, cutoff=2, min_size=2,
             ratio = len(members) - predict_ratio
 
         exist_nodes = members[:ratio]
+
+        # find nodes reachable from start_node within cutoff distance
         sub_graph_nodes = []
-        for node in exist_nodes:
-            n_nodes = nx.single_source_shortest_path_length(G, node,
+        for start_node in exist_nodes:
+            n_nodes = nx.single_source_shortest_path_length(G, start_node,
                                                             cutoff=cutoff)
             sub_graph_nodes += [n for n in n_nodes]
+            sub_graph_nodes.append(start_node)
+
+        # Build subgraph
         sub_graph_nodes = set(sub_graph_nodes)
         sub_G = nx.Graph()
         in_group_cnt = 0
-        for nodes in sub_graph_nodes:
-            in_group = 1 if nodes in members else 0
+        for node in sub_graph_nodes:
+            in_group = 1 if node in members else 0
             predict = 0
-            if nodes in exist_nodes:
+            if node in exist_nodes:
                 predict = 0
-            elif nodes in members and nodes not in exist_nodes:
+            elif node in members and node not in exist_nodes:
                 predict = 1
             in_group_cnt += in_group
-            sub_G.add_node(nodes, in_group=in_group, predict=predict)
-        hit_rate.append(in_group_cnt/len(members))
+            sub_G.add_node(node, in_group=in_group, predict=predict)
+
+        # hit_rate.append(in_group_cnt/len(members))
         # print('total : ',in_group_cnt)
         # print(len(sub_G.nodes))
-        for nodes in sub_graph_nodes:
-            for n in G.neighbors(nodes):
-                if sub_G.has_node(nodes) and sub_G.has_node(n):
-                    sub_G.add_edge(nodes, int(n))
+
+        for node in sub_graph_nodes:
+            for n in G.neighbors(node):
+                if sub_G.has_node(node) and sub_G.has_node(n):
+                    sub_G.add_edge(node, int(n))
         yield sub_G
-    #     groups.append(sub_G)
-    #     idx += 1
-    #     # if idx > 1000:
-    #     #     break
-    # return groups
 
 
 class SNAPCommunity(Dataset):
@@ -116,18 +108,6 @@ class SNAPCommunity(Dataset):
         self.min_size = min_size
         self.max_size = max_size
         self.group_size = 0
-        postfix = ""
-        if self.dataset == "amazon":
-            postfix = ".dedup"
-        dataset_filename = "com-{}.all{}.cmty.txt".format(dataset, postfix)
-        # self.processed_dir = osp.join("data", dataset)
-        self.dataset_filepath = osp.join("data", dataset, dataset_filename)
-        with open(self.dataset_filepath, 'r') as f:
-            for line in f.readlines():
-                if '#' not in line and len(line) > 0:
-                    members = line.strip().split('\t')
-                    if (len(members) >= min_size and len(members) <= max_size):
-                        self.group_size += 1
         print('group size : ', self.group_size)
         self.processed_file_idx = [idx for idx in range(self.group_size)]
 
@@ -138,11 +118,60 @@ class SNAPCommunity(Dataset):
                 embeddings = pickle.load(f)
                 self.user_map = embeddings['name2id']
 
+        self.user2id = None
+        if os.path.exists('{}/user2id.pkl'.format(self.dataset)):
+            with open('{}/user2id.pkl'.format(self.dataset), 'rb') as f:
+                user2id = pickle.load(f)
+            with open('{}/group_size.pkl'.format(self.dataset), 'rb') as f:
+                self.group_size = pickle.load(f)
+        else:
+            user2id = defaultdict(int)
+            postfix = ""
+            if self.dataset == "amazon":
+                postfix = ".dedup"
+            dataset_filename = "com-{}.all{}.cmty.txt".format(dataset, postfix)
+            self.dataset_filepath = osp.join("data", dataset, dataset_filename)
+            with open(self.dataset_filepath, 'r') as f:
+                for line in f.readlines():
+                    if '#' not in line and len(line) > 0:
+                        members = line.strip().split('\t')
+                        if (len(members) >= self.min_size and
+                                len(members) <= max_size):
+                            self.group_size += 1
+
+            ungraph_filepath = osp.join(
+                "data", dataset, "com-{}.ungraph.txt".format(self.dataset))
+            with open(ungraph_filepath, 'r') as f:
+                while True:
+                    try:
+                        line = f.readline()
+
+                    except StopIteration:
+                        break
+                    if len(line) == 0:
+                        break
+                    if '#' in line or len(line) < 2:
+                        continue
+                    members = line.strip().split('\t')
+                    for m in members:
+                        if str(m) not in user2id:
+                            user2id[str(m)] = len(user2id)
+
+            with open('{}/user2id.pkl'.format(self.dataset), 'wb') as f:
+                pickle.dump(user2id, f)
+            with open('{}/group_size.pkl'.format(self.dataset), 'wb') as f:
+                pickle.dump(self.group_size, f)
+        self.user2id = user2id
+
+        print('group size : ', self.group_size)
+        print('total user : ', len(self.user2id))
+        self.processed_file_idx = [idx for idx in range(self.group_size)]
+
+        self.user_map = None
         # This will call process()
         super(SNAPCommunity, self).__init__(osp.join("processed", dataset),
                                             transform=None,
                                             pre_transform=None)
-        # self.data, self.slices = torch.load(self.processed_paths[0])
 
     @property
     def processed_file_names(self):
@@ -160,7 +189,7 @@ class SNAPCommunity(Dataset):
         return ['some_file_1', 'some_file_2']
 
     def process(self):
-        # all_found = True
+        user2id = self.user2id
         length = 0
         print(self.processed_dir)
         for idx in range(self.group_size):
@@ -179,13 +208,6 @@ class SNAPCommunity(Dataset):
         member2group = defaultdict(list)
         group2member = defaultdict(list)
         edges = defaultdict(int)
-        embedding_filename = 'graphv/{}-64-DeepWalk.pkl'.format(self.dataset)
-        if osp.exists(embedding_filename):
-            with open(embedding_filename, 'rb') as f:
-                embeddings = pickle.load(f)
-        else:
-            embeddings = {}
-            embeddings['name2id'] = defaultdict(int)
         print('found pretrain embeddings...')
         dataset_filename = "com-{}.ungraph.txt".format(self.dataset)
         dataset_filepath = osp.join("data", self.dataset, dataset_filename)
@@ -226,10 +248,6 @@ class SNAPCommunity(Dataset):
                 group2member[group_id] = members
                 for m in members:
                     member2group[m].append(group_id)
-                    if m not in embeddings['name2id']:
-                        print(m)
-                        embeddings['name2id'][str(m)] = len(
-                            embeddings['name2id'])
                 pbar.update(1)
                 if group_id > 500000:
                     break
@@ -245,25 +263,18 @@ class SNAPCommunity(Dataset):
                 G.add_node(dst, group=member2group[dst])
             if G.has_node(src) and G.has_node(dst):
                 G.add_edge(src, dst)
-            if str(src) not in embeddings['name2id']:
-                embeddings['name2id'][str(src)] = len(embeddings['name2id'])
-            if str(dst) not in embeddings['name2id']:
-                embeddings['name2id'][str(dst)] = len(embeddings['name2id'])
 
         print('populate sub graph')
-        with open(embedding_filename, 'wb') as f:
-            pickle.dump(embeddings, f)
         # sub_graphs = create_sub_graph(G, group2member,
         #                               exist_ratio=self.ratio,
-        #                               cutoff=self.cutoff,
-        #                               min_size=self.min_size)
+        #     cutoff=self.cutoff, min_size=self.min_size)
         idx = 0
         for sub in create_sub_graph(G, group2member, exist_ratio=self.ratio,
                                     cutoff=self.cutoff,
                                     min_size=self.min_size):
             if len(sub.nodes) == 0:
                 continue
-            data = graph2data(sub, embeddings)
+            data = graph2data(sub, user2id)
 
             if self.pre_filter is not None and not self.pre_filter(data):
                 continue
@@ -275,10 +286,6 @@ class SNAPCommunity(Dataset):
             torch.save(data, osp.join(self.processed_dir, filename))
             idx += 1
         print('Total {}'.format(idx))
-
-        # self.data = [ graph2data(sub, embeddings) for sub in sub_graphs ]
-        # data, slices = self.collate(self.data)
-        # torch.save((data, slices), self.processed_paths[0])
 
     def __len__(self):
         return len(self.processed_file_names)

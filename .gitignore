@@ -149,3 +149,9 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Vscode
+.vscode
+
+# data
+amazon_shuffle_idx.pkl

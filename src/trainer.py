@@ -77,12 +77,12 @@ class GroupGCN():
             self.valid_dataset, args.batch_size, shuffle=False)
 
         model = StackedGCN(
-            len(self.train_dataset.user_map), args.input_dim, 1, args.layers,
+            len(self.train_dataset.user2id), args.input_dim, 1, args.layers,
             args.dropout)
         model = model.cuda()
 
         B = args.batch_size
-        user_size = len(self.train_dataset.user_map)
+        user_size = len(self.train_dataset.user2id)
 
         position_weight = {
             'amazon': 80,

@@ -2,15 +2,18 @@ import torch
 from torch_geometric.nn import GCNConv
 import torch.nn as nn
 
+
 class StackedGCN(torch.nn.Module):
     """
     Multi-layer GCN model.
     """
-    def __init__(self, user_size, input_channels, output_channels, layers=[32, 32], dropout=0.1):
+    def __init__(
+            self, user_size, input_channels, output_channels, layers=[32, 32],
+            dropout=0.1):
         """
         :param args: Arguments object.
         :input_channels: Number of features.
-        :output_channels: Number of target features. 
+        :output_channels: Number of target features.
         """
         super(StackedGCN, self).__init__()
         self.embeddings = nn.Embedding(user_size, input_channels)
@@ -20,14 +23,15 @@ class StackedGCN(torch.nn.Module):
         self.output_channels = output_channels
 
         self.layers = []
-        self.layers_dim = [self.input_channels] + self.layers_dim + [self.output_channels]
+        self.layers_dim = ([self.input_channels] +
+                           self.layers_dim +
+                           [self.output_channels])
         for i, _ in enumerate(self.layers_dim[:-2]):
-            self.layers.append(GCNConv(self.layers_dim[i],self.layers_dim[i+1]))
-        self.layers.append(GCNConv(self.layers_dim[-2],self.layers_dim[-1]))
+            self.layers.append(
+                GCNConv(self.layers_dim[i], self.layers_dim[i+1]))
+        self.layers.append(GCNConv(self.layers_dim[-2], self.layers_dim[-1]))
 
         self.layers = nn.ModuleList(self.layers)
-
-
 
     def forward(self, edges, features):
         """
@@ -38,12 +42,14 @@ class StackedGCN(torch.nn.Module):
         """
         features = self.embeddings(features.squeeze(-1))
         for i, _ in enumerate(self.layers[:-2]):
-            features = torch.nn.functional.relu(self.layers[i](features, edges))
-            if i>1:
-                features = torch.nn.functional.dropout(features, p = self.dropout, training = self.training)
+            features = nn.functional.relu(self.layers[i](features, edges))
+            if i > 1:
+                features = nn.functional.dropout(
+                    features, p=self.dropout, training=self.training)
         features = self.layers[-1](features, edges)
         # predictions = torch.nn.functional.log_sigmoid(features, dim=1)
         return features
+
 
 class ListModule(torch.nn.Module):
     """
@@ -82,8 +88,6 @@ class ListModule(torch.nn.Module):
         """
         return len(self._modules)
 
-if __name__ == "__main__":
-    model = StackedGCN(64, 1)
-    
 
-    
+if __name__ == "__main__":
+    model = StackedGCN(39687, 16, 1, [16, 16, 16], 0.1)
