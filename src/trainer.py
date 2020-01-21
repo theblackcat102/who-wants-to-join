@@ -80,11 +80,11 @@ class GroupGCN():
         train_loader = DataLoader(self.train_dataset, batch_size=args.batch_size, shuffle=True)
         valid_loader = DataLoader(self.valid_dataset, batch_size=args.batch_size, shuffle=False)
 
-        model = StackedGCN(len(self.train_dataset.user_map) ,args.input_dim, 1, args.layers, args.dropout)
+        model = StackedGCN(len(self.train_dataset.user2id) ,args.input_dim, 1, args.layers, args.dropout)
         model = model.cuda()
 
         B = args.batch_size
-        user_size = len(self.train_dataset.user_map)
+        user_size = len(self.train_dataset.user2id)
 
 
         position_weight = {
