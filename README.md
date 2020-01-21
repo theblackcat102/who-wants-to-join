@@ -42,7 +42,6 @@ deepwalk --workers 8  --input youtube/com-youtube.ungraph.txt --output youtube/y
 
 python -m baseline.train_sia --dataset dblp --task socnet --neg-ratio 5
 
-
 ### Seq2Seq
 
 python -m baseline.train --dataset amazon --task socnet
@@ -54,6 +53,15 @@ python -m baseline.deepset3 --dataset dblp --task socnet
 ### Nearest Neighbour
 
 python -m baseline.cluster
+
+### GCN
+
+python -m src.trainer.py
+
+
+# Tensorboard
+
+tensorboard --logdir=logs
 
 
 # Notes
