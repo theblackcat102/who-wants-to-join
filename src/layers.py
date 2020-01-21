@@ -14,6 +14,9 @@ class StackedGCN(torch.nn.Module):
         """
         super(StackedGCN, self).__init__()
         self.embeddings = nn.Embedding(user_size, input_channels)
+
+        self.known_embeddings = nn.Embedding(2, input_channels)
+
         self.layers_dim = layers
         self.dropout = dropout
         self.input_channels = input_channels
@@ -36,7 +39,10 @@ class StackedGCN(torch.nn.Module):
         :param features: Feature matrix input FLoatTensor.
         :return predictions: Prediction matrix output FLoatTensor.
         """
-        features = self.embeddings(features.squeeze(-1))
+        features_ = self.embeddings(features[:, 0])
+        known_feat = self.known_embeddings(features[:, 1])
+        features = known_feat + features_
+
         for i, _ in enumerate(self.layers[:-2]):
             features = torch.nn.functional.relu(self.layers[i](features, edges))
             if i>1:

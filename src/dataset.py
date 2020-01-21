@@ -32,7 +32,7 @@ def graph2data(G, name2id):
     for n in G.nodes:
         node_latent = None
         if str(n) in name2id:
-            node_latent = Variable(torch.from_numpy(np.array([name2id[str(n)]])))
+            node_latent = Variable(torch.from_numpy(np.array([name2id[str(n)], G.nodes[n]['known_member']])))
         else:
             print(str(n))
             continue
@@ -80,13 +80,14 @@ def create_sub_graph(G, group2member, exist_ratio=0.8, cutoff=2, min_size=2,max_
         in_group_cnt = 0
         for node in sub_graph_nodes:
             in_group = 1 if node in members else 0
+            known_member = 1 if node in exist_nodes else 0
             predict = 0
             if node in exist_nodes:
                 predict = 0
             elif node in members and node not in exist_nodes:
                 predict = 1
             in_group_cnt += in_group
-            sub_G.add_node(node , in_group=in_group, predict=predict)
+            sub_G.add_node(node , in_group=in_group, predict=predict, known_member=known_member)
 
         # hit_rate.append(in_group_cnt/len(members))
         # print('total : ',in_group_cnt)
@@ -151,6 +152,7 @@ class SNAPCommunity(Dataset):
 
         self.user_map = None
         super(SNAPCommunity, self).__init__('./', transform=None, pre_transform=None)
+        self.process()
         # self.data, self.slices = torch.load(self.processed_paths[0])
 
     @property
@@ -172,12 +174,14 @@ class SNAPCommunity(Dataset):
         all_found = True
         length = 0
         for idx in range(self.group_size):
-            filename = '{}_{}_{}_{}_{}.pt'.format(self.dataset, self.cutoff, self.ratio, self.min_size, idx)
+            filename = '{}_{}_{}_{}_{}_v2.pt'.format(self.dataset, self.cutoff, self.ratio, self.min_size, idx)
+            length = idx
             if not os.path.exists(osp.join(self.processed_dir, filename)):
                 print(filename)
                 all_found = False
                 length = idx
                 break
+
         if length != 0:
             self.group_size = length
             self.processed_file_idx = [ idx for idx in range(self.group_size)]
@@ -258,7 +262,7 @@ class SNAPCommunity(Dataset):
             if self.pre_transform is not None:
                 data = self.pre_transform(data)
 
-            filename = '{}_{}_{}_{}_{}.pt'.format(self.dataset, self.cutoff, self.ratio, self.min_size, idx)
+            filename = '{}_{}_{}_{}_{}_v2.pt'.format(self.dataset, self.cutoff, self.ratio, self.min_size, idx)
             torch.save(data, osp.join(self.processed_dir, filename))
             idx += 1
         print('Total {}'.format(idx))
@@ -271,7 +275,7 @@ class SNAPCommunity(Dataset):
             self.processed_file_idx = idx
             return deepcopy(self)
 
-        filename = '{}_{}_{}_{}_{}.pt'.format(self.dataset, self.cutoff, self.ratio, self.min_size, idx)
+        filename = '{}_{}_{}_{}_{}_v2.pt'.format(self.dataset, self.cutoff, self.ratio, self.min_size, idx)
         data = torch.load(osp.join(self.processed_dir, filename))
         return data
 

@@ -42,7 +42,7 @@ def confusion(prediction, truth):
 class GroupGCN():
 
     def __init__(self, args):
-        dataset = SNAPCommunity(args.dataset, cutoff=2)
+        dataset = SNAPCommunity(args.dataset, cutoff=args.maxhop)
 
         # make sure each runs share the same results
         if os.path.exists(args.dataset+'_shuffle_idx.pkl'):
@@ -162,8 +162,9 @@ if __name__ == "__main__":
     parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--dataset', type=str, default='amazon', choices=['amazon', 'dblp', 'youtube'])
     parser.add_argument('--dropout', type=float, default=0.1)
-    parser.add_argument('--layers', type=list, default=[16, 16, 16])
-    parser.add_argument('--input-dim', type=int, default=16)
+    parser.add_argument('--layers', type=list, default=[32, 32, 32])
+    parser.add_argument('--input-dim', type=int, default=32)
+    parser.add_argument('--maxhop', type=int, default=2)
     parser.add_argument('--eval', type=int, default=10)
 
     args = parser.parse_args()

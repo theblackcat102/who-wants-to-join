@@ -36,6 +36,10 @@ deepwalk --workers 8  --input lj/com-lj.ungraph.txt --output lj/lj.rand.embeddin
 deepwalk --workers 8  --input youtube/com-youtube.ungraph.txt --output youtube/youtube.rand.embeddings --walk-length 20 --window-size 10
 
 
+python baseline.py --dataset amazon
+python baseline.py --dataset dblp
+python baseline.py --dataset youtube
+
 # Train
 
 ### Siamese Network
