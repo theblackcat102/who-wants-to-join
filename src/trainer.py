@@ -1,21 +1,18 @@
-import torch.nn.functional as F
-from torch_geometric.nn import GCNConv
 from src.layers import StackedGCN
 from src.dataset import SNAPCommunity
-from torch_scatter import scatter_mean
-from torch_geometric.data import InMemoryDataset, DataLoader
+from torch_geometric.data import DataLoader
 import random
 from tqdm import tqdm
 import torch
 import pickle
 import os
 import numpy as np
-from sklearn.metrics import f1_score
+
 
 def confusion(prediction, truth):
-    """ Returns the confusion matrix for the values in the `prediction` and `truth`
-    tensors, i.e. the amount of positions where the values of `prediction`
-    and `truth` are
+    """ Returns the confusion matrix for the values in the `prediction` and
+        `truth` tensors, i.e. the amount of positions where the values of
+        `prediction` and `truth` are
     - 1 and 1 (True Positive)
     - 1 and 0 (False Positive)
     - 0 and 0 (True Negative)
@@ -38,18 +35,15 @@ def confusion(prediction, truth):
     return true_positives, false_positives, true_negatives, false_negatives
 
 
-
 class GroupGCN():
-
     def __init__(self, args):
         dataset = SNAPCommunity(args.dataset, cutoff=2)
-
         # make sure each runs share the same results
         if os.path.exists(args.dataset+'_shuffle_idx.pkl'):
             with open(args.dataset+'_shuffle_idx.pkl', 'rb') as f:
                 shuffle_idx = pickle.load(f)
         else:
-            shuffle_idx = [ idx for idx in range(len(dataset))]
+            shuffle_idx = [idx for idx in range(len(dataset))]
             random.shuffle(shuffle_idx)
             with open(args.dataset+'_shuffle_idx.pkl', 'wb') as f:
                 pickle.dump(shuffle_idx, f)
@@ -64,37 +58,41 @@ class GroupGCN():
         valid_idx = valid_idx_[test_pos:]
 
         self.train_dataset = dataset[train_idx]
-
         self.test_dataset = dataset[test_idx]
         self.valid_dataset = dataset[valid_idx]
 
-        # print(len(set(self.valid_dataset.processed_file_idx + self.train_dataset.processed_file_idx)))
+        # print(len(set(
+        #     self.valid_dataset.processed_file_idx +
+        #     self.train_dataset.processed_file_idx)))
         # print(len(self.valid_dataset)+ len(self.train_dataset))
 
         self.args = args
         print('finish init')
 
-
     def train(self, epochs=200):
         args = self.args
-        train_loader = DataLoader(self.train_dataset, batch_size=args.batch_size, shuffle=True)
-        valid_loader = DataLoader(self.valid_dataset, batch_size=args.batch_size, shuffle=False)
+        train_loader = DataLoader(
+            self.train_dataset, args.batch_size, shuffle=True)
+        valid_loader = DataLoader(
+            self.valid_dataset, args.batch_size, shuffle=False)
 
-        model = StackedGCN(len(self.train_dataset.user_map) ,args.input_dim, 1, args.layers, args.dropout)
+        model = StackedGCN(
+            len(self.train_dataset.user_map), args.input_dim, 1, args.layers,
+            args.dropout)
         model = model.cuda()
 
         B = args.batch_size
         user_size = len(self.train_dataset.user_map)
 
-
         position_weight = {
             'amazon': 80,
             'dblp': 100,
         }
-        weight = 100 # default
+        weight = 100  # default
         if args.dataset in position_weight:
             weight = position_weight[args.dataset]
-        optimizer = torch.optim.Adam(model.parameters(), lr=0.001, weight_decay=5e-4)
+        optimizer = torch.optim.Adam(
+            model.parameters(), lr=0.001, weight_decay=5e-4)
         print('weight : ', weight)
         pos_weight = torch.ones([1])*weight
         pos_weight = pos_weight.cuda()
@@ -119,55 +117,56 @@ class GroupGCN():
                     pbar.set_description("loss {:.4f}".format(loss.item()))
 
             if epoch % args.eval == 0:
-                print('Epoch: ',epoch)
+                print('Epoch: ', epoch)
                 model.eval()
                 recalls = []
                 precisions = []
                 print('Validation')
                 with torch.no_grad():
+                    y_pred = torch.zeros(B, user_size)
+                    y_target = torch.zeros(B, user_size)
                     for val_data in tqdm(valid_loader, dynamic_ncols=True):
                         x, edge_index = val_data.x, val_data.edge_index
                         y = val_data.y
                         pred = model(edge_index.cuda(), x.cuda())
-
-
                         pred = pred.cpu()
-                        y_pred = torch.FloatTensor(B, user_size)
                         y_pred.zero_()
-                        y_target = torch.FloatTensor(B, user_size)
                         y_target.zero_()
-
                         for idx, batch_idx in enumerate(val_data.batch):
                             if y[idx] == 1:
-                                y_target[batch_idx.data, x[idx] ] = 1
+                                y_target[batch_idx, x[idx]] = 1
                             if pred[idx] > 0.5:
                                 y_pred[batch_idx, x[idx]] = 1
-
                         TP, FP, TN, FN = confusion(y_pred, y_target)
-
                         recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
-                        precision =  0 if (TP+FP) < 1e-5 else TP/(TP+FP)
+                        precision = 0 if (TP+FP) < 1e-5 else TP/(TP+FP)
                         precisions.append(precision)
                         recalls.append(recall)
 
                 avg_recalls = np.mean(recalls)
                 avg_precisions = np.mean(precisions)
-                f1 = 2*(avg_recalls*avg_precisions)/(avg_recalls+avg_precisions)
+                f1 = (
+                    2*(avg_recalls*avg_precisions) /
+                    (avg_recalls+avg_precisions))
                 print(f1)
+
 
 if __name__ == "__main__":
     import argparse
-
-    parser = argparse.ArgumentParser(description='Deepset Recommendation Model')
+    parser = argparse.ArgumentParser(
+        description='Deepset Recommendation Model')
+    # dataset parameters
+    parser.add_argument('--dataset', type=str, default='amazon',
+                        choices=['amazon', 'dblp', 'youtube'])
+    # training parameters
+    parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--batch-size', type=int, default=64)
-    parser.add_argument('--dataset', type=str, default='amazon', choices=['amazon', 'dblp', 'youtube'])
+    parser.add_argument('--eval', type=int, default=10)
+    # model parameters
+    parser.add_argument('--input-dim', type=int, default=16)
     parser.add_argument('--dropout', type=float, default=0.1)
     parser.add_argument('--layers', type=list, default=[16, 16, 16])
-    parser.add_argument('--input-dim', type=int, default=16)
-    parser.add_argument('--eval', type=int, default=10)
-
     args = parser.parse_args()
 
     trainer = GroupGCN(args)
-
-    trainer.train()
+    trainer.train(epochs=args.epochs)
