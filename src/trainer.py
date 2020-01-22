@@ -73,12 +73,47 @@ class GroupGCN():
 
         self.args = args
         print('finish init')
+    
+    def evaluate(dataloader, model):
+        model.eval()
+        recalls = []
+        precisions = []
+        print('Validation')
+        with torch.no_grad():
+            for val_data in tqdm(dataloader, dynamic_ncols=True):
+                x, edge_index = val_data.x, val_data.edge_index
+                y = val_data.y
+                pred = model(edge_index.cuda(), x.cuda())
 
+                pred = pred.cpu()
+                y_pred = torch.FloatTensor(B, user_size)
+                y_pred.zero_()
+                y_target = torch.FloatTensor(B, user_size)
+                y_target.zero_()
+
+                for idx, batch_idx in enumerate(val_data.batch):
+                    if y[idx] == 1:
+                        y_target[batch_idx.data, x[idx] ] = 1
+                    if pred[idx] > 0.5:
+                        y_pred[batch_idx, x[idx]] = 1
+
+                TP, FP, TN, FN = confusion(y_pred, y_target)
+
+                recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
+                precision =  0 if (TP+FP) < 1e-5 else TP/(TP+FP)
+                precisions.append(precision)
+                recalls.append(recall)
+
+        avg_recalls = np.mean(recalls)
+        avg_precisions = np.mean(precisions)
+        f1 = 2*(avg_recalls*avg_precisions)/(avg_recalls+avg_precisions)
+        return f1, avg_recalls, avg_precisions
 
     def train(self, epochs=200):
         args = self.args
         train_loader = DataLoader(self.train_dataset, batch_size=args.batch_size, shuffle=True)
         valid_loader = DataLoader(self.valid_dataset, batch_size=args.batch_size, shuffle=False)
+        test_loader = DataLoader(self.test_dataset, batch_size=args.batch_size, shuffle=False)
 
         model = StackedGCN(len(self.train_dataset.user2id) ,args.input_dim, 1, args.layers, args.dropout)
         model = model.cuda()
@@ -99,9 +134,8 @@ class GroupGCN():
         pos_weight = pos_weight.cuda()
         criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
-        for epoch in range(epochs):
-            model.train()
-            with tqdm(total=len(train_loader), dynamic_ncols=True) as pbar:
+        with tqdm(total=int(len(train_loader)*epochs), dynamic_ncols=True) as pbar:
+            for epoch in range(epochs):
                 for data in train_loader:
                     optimizer.zero_grad()
                     x, edge_index = data.x, data.edge_index
@@ -119,39 +153,8 @@ class GroupGCN():
 
             if epoch % args.eval == 0:
                 print('Epoch: ',epoch)
-                model.eval()
-                recalls = []
-                precisions = []
-                print('Validation')
-                with torch.no_grad():
-                    for val_data in tqdm(valid_loader, dynamic_ncols=True):
-                        x, edge_index = val_data.x, val_data.edge_index
-                        y = val_data.y
-                        pred = model(edge_index.cuda(), x.cuda())
-
-
-                        pred = pred.cpu()
-                        y_pred = torch.FloatTensor(B, user_size)
-                        y_pred.zero_()
-                        y_target = torch.FloatTensor(B, user_size)
-                        y_target.zero_()
-
-                        for idx, batch_idx in enumerate(val_data.batch):
-                            if y[idx] == 1:
-                                y_target[batch_idx.data, x[idx] ] = 1
-                            if pred[idx] > 0.5:
-                                y_pred[batch_idx, x[idx]] = 1
-
-                        TP, FP, TN, FN = confusion(y_pred, y_target)
-
-                        recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
-                        precision =  0 if (TP+FP) < 1e-5 else TP/(TP+FP)
-                        precisions.append(precision)
-                        recalls.append(recall)
-
-                avg_recalls = np.mean(recalls)
-                avg_precisions = np.mean(precisions)
-                f1 = 2*(avg_recalls*avg_precisions)/(avg_recalls+avg_precisions)
+                f1,recalls, precisions = self.evaluate(valid_loader, model)
+                model.train()
                 print(f1)
 
 if __name__ == "__main__":
