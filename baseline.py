@@ -6,10 +6,10 @@ from gensim.models import KeyedVectors
 from gensim.scripts.glove2word2vec import glove2word2vec
 from src.trainer import confusion
 from src.dataset import SNAPCommunity
+from torch_geometric.data import DataLoader
 from tqdm import tqdm
 from collections import defaultdict
 import argparse
-from torch.utils.data import Dataset, DataLoader
 from tqdm import tqdm
 import pickle
 
@@ -60,7 +60,7 @@ if __name__ == "__main__":
     split_pos = int(len(dataset)*0.7)
     train_idx = shuffle_idx[:split_pos]
     valid_idx_ = shuffle_idx[split_pos:]
-    test_pos = int(len(valid_idx_)*0.666)
+    test_pos = int(len(valid_idx_)*0.333)
     test_idx = valid_idx_[:test_pos]
     valid_idx = valid_idx_[test_pos:]
 
@@ -77,7 +77,10 @@ if __name__ == "__main__":
     print('start evaluate')
     B, user_size = 1, len(user2id)
     stats = []
-    for data in tqdm(valid_dataset, dynamic_ncols=True):
+    test_loader = DataLoader(valid_dataset,
+                                 batch_size=1,
+                                 shuffle=False)
+    for data in tqdm(test_loader, dynamic_ncols=True):
         existing_users_idx = data.x[:, 1] 
         input_users_id = data.x[:, 0].flatten()
         existing_users_id = input_users_id[ existing_users_idx == 1 ].numpy()
