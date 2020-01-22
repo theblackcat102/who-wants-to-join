@@ -8,6 +8,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 import pickle
 import os
+import os.path as osp
 import numpy as np
 
 
@@ -42,7 +43,7 @@ class GroupGCN():
         dataset = SNAPCommunity(args.dataset, cutoff=args.maxhop)
 
         # make sure each runs share the same results
-        if os.path.exists(args.dataset+'_shuffle_idx.pkl'):
+        if osp.exists(args.dataset+'_shuffle_idx.pkl'):
             with open(args.dataset+'_shuffle_idx.pkl', 'rb') as f:
                 shuffle_idx = pickle.load(f)
         else:
@@ -56,7 +57,7 @@ class GroupGCN():
         split_pos = int(len(dataset)*0.7)
         train_idx = shuffle_idx[:split_pos]
         valid_idx_ = shuffle_idx[split_pos:]
-        test_pos = int(len(valid_idx_)*0.666)
+        test_pos = int(len(valid_idx_)*0.333)
         test_idx = valid_idx_[:test_pos]
         valid_idx = valid_idx_[test_pos:]
 
@@ -70,54 +71,73 @@ class GroupGCN():
         # print(len(self.valid_dataset)+ len(self.train_dataset))
 
         self.args = args
+
+        self.log_path = osp.join(
+            "logs", "gcn", datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+        self.writer = SummaryWriter(log_dir=self.log_path)
+        self.save_path = osp.join(self.log_path, "models")
+        os.makedirs(self.save_path, exist_ok=True)
         print('finish init')
-    
-    def evaluate(dataloader, model):
+
+    def save_checkpoint(self, checkpoint, save_path, save_name):
+        save_path = osp.join(save_path, 'model_{}.pth'.format(save_name))
+        torch.save(checkpoint, save_path)
+
+    def evaluate(self, dataloader, model):
         model.eval()
         recalls = []
         precisions = []
+        B = args.batch_size
+        user_size = len(self.train_dataset.user2id)
         print('Validation')
         with torch.no_grad():
+            y_pred = torch.FloatTensor(B, user_size)
+            y_target = torch.FloatTensor(B, user_size)
             for val_data in tqdm(dataloader, dynamic_ncols=True):
                 x, edge_index = val_data.x, val_data.edge_index
                 y = val_data.y
                 pred = model(edge_index.cuda(), x.cuda())
-
                 pred = pred.cpu()
-                y_pred = torch.FloatTensor(B, user_size)
                 y_pred.zero_()
-                y_target = torch.FloatTensor(B, user_size)
                 y_target.zero_()
 
                 for idx, batch_idx in enumerate(val_data.batch):
                     if y[idx] == 1:
-                        y_target[batch_idx.data, x[idx] ] = 1
+                        y_target[batch_idx.data, x[idx]] = 1
                     if pred[idx] > 0.5:
                         y_pred[batch_idx, x[idx]] = 1
 
                 TP, FP, TN, FN = confusion(y_pred, y_target)
 
                 recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
-                precision =  0 if (TP+FP) < 1e-5 else TP/(TP+FP)
+                precision = 0 if (TP+FP) < 1e-5 else TP/(TP+FP)
                 precisions.append(precision)
                 recalls.append(recall)
 
         avg_recalls = np.mean(recalls)
         avg_precisions = np.mean(precisions)
         f1 = 2*(avg_recalls*avg_precisions)/(avg_recalls+avg_precisions)
+        model.train()
         return f1, avg_recalls, avg_precisions
 
     def train(self, epochs=200):
         args = self.args
-        train_loader = DataLoader(self.train_dataset, batch_size=args.batch_size, shuffle=True)
-        valid_loader = DataLoader(self.valid_dataset, batch_size=args.batch_size, shuffle=False)
-        test_loader = DataLoader(self.test_dataset, batch_size=args.batch_size, shuffle=False)
+        train_loader = DataLoader(self.train_dataset,
+                                  batch_size=args.batch_size,
+                                  shuffle=True)
+        valid_loader = DataLoader(self.valid_dataset,
+                                  batch_size=args.batch_size,
+                                  shuffle=False)
+        test_loader = DataLoader(self.test_dataset,
+                                 batch_size=args.batch_size,
+                                 shuffle=False)
 
-        model = StackedGCN(len(self.train_dataset.user2id) ,args.input_dim, 1, args.layers, args.dropout)
+        model = StackedGCN(len(self.train_dataset.user2id),
+                           args.input_dim,
+                           1,
+                           args.layers,
+                           args.dropout)
         model = model.cuda()
-
-        B = args.batch_size
-        user_size = len(self.train_dataset.user2id)
 
         position_weight = {
             'amazon': 80,
@@ -133,7 +153,9 @@ class GroupGCN():
         pos_weight = pos_weight.cuda()
         criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
 
-        with tqdm(total=int(len(train_loader)*epochs), dynamic_ncols=True) as pbar:
+        n_iter = 0
+        best_f1 = 0
+        with tqdm(total=len(train_loader)*epochs, dynamic_ncols=True) as pbar:
             for epoch in range(epochs):
                 for data in train_loader:
                     optimizer.zero_grad()
@@ -149,14 +171,49 @@ class GroupGCN():
                     self.writer.add_scalar(
                         "Train/BCEWithLogitsLoss", loss.item(), n_iter)
                     pbar.update(1)
-                    pbar.set_description("loss {:.4f}".format(loss.item()))
+                    pbar.set_description(
+                        "loss {:.4f}, epoch {}".format(loss.item(), epoch))
                     n_iter += 1
 
-            if epoch % args.eval == 0:
-                print('Epoch: ',epoch)
-                f1,recalls, precisions = self.evaluate(valid_loader, model)
-                model.train()
-                print(f1)
+                if epoch % args.eval == 0:
+                    print('Epoch: ', epoch)
+                    f1, recalls, precisions = self.evaluate(valid_loader,
+                                                            model)
+                    self.writer.add_scalar("Valid/F1", f1, n_iter)
+                    self.writer.add_scalar("Valid/Recalls", recalls, n_iter)
+                    self.writer.add_scalar("Valid/Precisions", precisions,
+                                           n_iter)
+                    if f1 > best_f1:
+                        best_f1 = f1
+                        best_checkpoint = {
+                            'epoch': epoch+1,
+                            'model': model.state_dict(),
+                            'optimizer': optimizer.state_dict(),
+                            'f1': f1
+                        }
+                    print(f1)
+
+                if epoch % args.save == 0:
+                    self.save_checkpoint({
+                        'epoch': epoch+1,
+                        'model': model.state_dict(),
+                        'optimizer': optimizer.state_dict(),
+                        'f1': f1
+                        },
+                        self.save_path,
+                        "{}".format(epoch+1)
+                    )
+
+        print("Testing")
+        self.save_checkpoint(best_checkpoint,
+                             self.save_path,
+                             "best")
+        model.load_state_dict(best_checkpoint["model"])
+        f1, recalls, precisions = self.evaluate(test_loader, model)
+        self.writer.add_scalar("Test/F1", f1, n_iter)
+        self.writer.add_scalar("Test/Recalls", recalls, n_iter)
+        self.writer.add_scalar("Test/Precisions", precisions, n_iter)
+        self.writer.flush()
 
 
 if __name__ == "__main__":
@@ -170,13 +227,12 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--eval', type=int, default=10)
+    parser.add_argument('--save', type=int, default=50)
     # model parameters
-    parser.add_argument('--input-dim', type=int, default=16)
-    parser.add_argument('--dropout', type=float, default=0.1)
-    parser.add_argument('--layers', type=list, default=[32, 32, 32])
     parser.add_argument('--input-dim', type=int, default=32)
+    parser.add_argument('--dropout', type=float, default=0.1)
+    parser.add_argument('--layers', nargs='+', type=int, default=[32, 32, 32])
     parser.add_argument('--maxhop', type=int, default=2)
-    parser.add_argument('--eval', type=int, default=10)
 
     args = parser.parse_args()
 

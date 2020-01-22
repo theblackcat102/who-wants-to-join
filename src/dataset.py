@@ -29,7 +29,9 @@ def graph2data(G, name2id):
     for n in G.nodes:
         node_latent = None
         if str(n) in name2id:
-            node_latent = Variable(torch.from_numpy(np.array([name2id[str(n)], G.nodes[n]['known_member']])))
+            node_latent = Variable(
+                torch.from_numpy(
+                    np.array([name2id[str(n)], G.nodes[n]['known_member']])))
         else:
             print(str(n))
             continue
@@ -86,7 +88,8 @@ def create_sub_graph(G, group2member, exist_ratio=0.8, cutoff=2, min_size=2,
             elif node in members and node not in exist_nodes:
                 predict = 1
             in_group_cnt += in_group
-            sub_G.add_node(node , in_group=in_group, predict=predict, known_member=known_member)
+            sub_G.add_node(node, in_group=in_group, predict=predict,
+                           known_member=known_member)
 
         # hit_rate.append(in_group_cnt/len(members))
         # print('total : ',in_group_cnt)
@@ -117,8 +120,13 @@ class SNAPCommunity(Dataset):
                 embeddings = pickle.load(f)
                 self.user_map = embeddings['name2id']
 
-        self.user2id = None
         dataset_path = osp.join("data", dataset)
+        postfix = ""
+        if self.dataset == "amazon":
+            postfix = ".dedup"
+        dataset_filename = "com-{}.all{}.cmty.txt".format(dataset, postfix)
+        self.dataset_filepath = osp.join(dataset_path, dataset_filename)
+        self.user2id = None
         user2id_filepath = osp.join(dataset_path, "user2id.pkl")
         group_size_filepath = osp.join(dataset_path, "group_size.pkl")
         if os.path.exists(user2id_filepath):
@@ -128,11 +136,6 @@ class SNAPCommunity(Dataset):
                 self.group_size = pickle.load(f)
         else:
             user2id = defaultdict(int)
-            postfix = ""
-            if self.dataset == "amazon":
-                postfix = ".dedup"
-            dataset_filename = "com-{}.all{}.cmty.txt".format(dataset, postfix)
-            self.dataset_filepath = osp.join(dataset_path, dataset_filename)
             with open(self.dataset_filepath, 'r') as f:
                 for line in f.readlines():
                     if '#' not in line and len(line) > 0:
@@ -170,8 +173,10 @@ class SNAPCommunity(Dataset):
         self.processed_file_idx = [idx for idx in range(self.group_size)]
 
         self.user_map = None
-        super(SNAPCommunity, self).__init__(osp.join("processed", dataset), transform=None, pre_transform=None)
-        self.process()
+        super(SNAPCommunity, self).__init__(osp.join("processed", dataset),
+                                            transform=None,
+                                            pre_transform=None)
+        # self.process()
         # self.data, self.slices = torch.load(self.processed_paths[0])
 
     @property
@@ -194,11 +199,12 @@ class SNAPCommunity(Dataset):
         length = 0
         print(self.processed_dir)
         for idx in range(self.group_size):
-            filename = '{}_{}_{}_{}_{}_v2.pt'.format(self.dataset, self.cutoff, self.ratio, self.min_size, idx)
+            filename = '{}_{}_{}_{}_{}_v2.pt'.format(
+                self.dataset, self.cutoff, self.ratio, self.min_size, idx)
             length = idx
             if not os.path.exists(osp.join(self.processed_dir, filename)):
                 print(filename)
-                all_found = False
+                # all_found = False
                 length = idx
                 break
 
@@ -283,7 +289,8 @@ class SNAPCommunity(Dataset):
             if self.pre_transform is not None:
                 data = self.pre_transform(data)
 
-            filename = '{}_{}_{}_{}_{}_v2.pt'.format(self.dataset, self.cutoff, self.ratio, self.min_size, idx)
+            filename = '{}_{}_{}_{}_{}_v2.pt'.format(
+                self.dataset, self.cutoff, self.ratio, self.min_size, idx)
             torch.save(data, osp.join(self.processed_dir, filename))
             idx += 1
         print('Total {}'.format(idx))
@@ -296,7 +303,8 @@ class SNAPCommunity(Dataset):
             self.processed_file_idx = idx
             return deepcopy(self)
 
-        filename = '{}_{}_{}_{}_{}_v2.pt'.format(self.dataset, self.cutoff, self.ratio, self.min_size, idx)
+        filename = '{}_{}_{}_{}_{}_v2.pt'.format(
+            self.dataset, self.cutoff, self.ratio, self.min_size, idx)
         data = torch.load(osp.join(self.processed_dir, filename))
         return data
 
