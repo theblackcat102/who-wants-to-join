@@ -1,9 +1,5 @@
-import resource
-rlimit = resource.getrlimit(resource.RLIMIT_NOFILE)
-resource.setrlimit(resource.RLIMIT_NOFILE, (4096, rlimit[1]))
 from copy import deepcopy
-
-from torch_geometric.data import InMemoryDataset, Dataset, Data, DataLoader
+from torch_geometric.data import Dataset, Data, DataLoader
 import networkx as nx
 import numpy as np
 from collections import defaultdict
@@ -12,12 +8,13 @@ from sklearn.metrics import f1_score
 import os.path as osp
 import os
 import torch
-from torch.autograd import Variable, Function
+from torch.autograd import Variable
 import random
 
 import pickle
 # with open('{}/user2id.pkl'.format('amazon'), 'rb') as f:
 #     user2id = pickle.load(f)
+
 
 def graph2data(G, name2id):
     graph_idx = {}
@@ -37,12 +34,12 @@ def graph2data(G, name2id):
             print(str(n))
             continue
 
-        edge_index = np.array(list( G.edges(n)))
+        edge_index = np.array(list(G.edges(n)))
         new_edges = []
         for idx in range(len(edge_index)):
             src, dst = edge_index[idx]
-            edge_index[idx] = [graph_idx[src], graph_idx[dst]  ]
-            new_edges.append([graph_idx[dst], graph_idx[src]  ])
+            edge_index[idx] = [graph_idx[src], graph_idx[dst]]
+            new_edges.append([graph_idx[dst], graph_idx[src]])
         edges.append(new_edges)
         nodes.append(node_latent)
         labels.append(G.nodes[n]['predict'])
@@ -53,7 +50,9 @@ def graph2data(G, name2id):
     edges = torch.from_numpy(np.transpose(np.concatenate(edges))).contiguous()
     return Data(x=x, edge_index=edges, y=y)
 
-def create_sub_graph(G, group2member, exist_ratio=0.8, cutoff=2, min_size=2,max_size=1000):
+
+def create_sub_graph(G, group2member, exist_ratio=0.8, cutoff=2, min_size=2,
+                     max_size=1000):
     # hit_rate = []
     for group_id, members in tqdm(group2member.items(), dynamic_ncols=True):
         random.shuffle(members)
@@ -65,16 +64,16 @@ def create_sub_graph(G, group2member, exist_ratio=0.8, cutoff=2, min_size=2,max_
             ratio = len(members) - predict_ratio
 
         exist_nodes = members[:ratio]
-    
+
         # find nodes reachable from start_node within cutoff distance
         sub_graph_nodes = []
         for start_node in exist_nodes:
-            n_nodes = nx.single_source_shortest_path_length(G, start_node, cutoff=cutoff)
+            n_nodes = nx.single_source_shortest_path_length(G, start_node,
+                                                            cutoff=cutoff)
             sub_graph_nodes += [n for n in n_nodes]
             sub_graph_nodes.append(start_node)
 
-        # Build subgraph 
-
+        # Build subgraph
         sub_graph_nodes = set(sub_graph_nodes)
         sub_G = nx.Graph()
         in_group_cnt = 0
@@ -99,32 +98,52 @@ def create_sub_graph(G, group2member, exist_ratio=0.8, cutoff=2, min_size=2,max_
                     sub_G.add_edge(node, int(n))
         yield sub_G
 
-class SNAPCommunity(Dataset):
 
-    def __init__(self, dataset='amazon', cutoff=2, ratio=0.8, min_size=5, max_size=500):
+class SNAPCommunity(Dataset):
+    def __init__(self, dataset='amazon', cutoff=2, ratio=0.8, min_size=5,
+                 max_size=500):
         self.dataset = dataset
         self.cutoff = cutoff
         self.ratio = ratio
         self.min_size = min_size
         self.max_size = max_size
         self.group_size = 0
+        self.processed_file_idx = [idx for idx in range(self.group_size)]
+
+        self.user_map = None
+        embedding_filename = 'graphv/{}-64-DeepWalk.pkl'.format(self.dataset)
+        if osp.exists(embedding_filename):
+            with open(embedding_filename, 'rb') as f:
+                embeddings = pickle.load(f)
+                self.user_map = embeddings['name2id']
 
         self.user2id = None
-        if os.path.exists('{}/user2id.pkl'.format(self.dataset)):
-            with open('{}/user2id.pkl'.format(self.dataset), 'rb') as f:
+        dataset_path = osp.join("data", dataset)
+        user2id_filepath = osp.join(dataset_path, "user2id.pkl")
+        group_size_filepath = osp.join(dataset_path, "group_size.pkl")
+        if os.path.exists(user2id_filepath):
+            with open(user2id_filepath, 'rb') as f:
                 user2id = pickle.load(f)
-            with open('{}/group_size.pkl'.format(self.dataset), 'rb') as f:
+            with open(group_size_filepath, 'rb') as f:
                 self.group_size = pickle.load(f)
         else:
             user2id = defaultdict(int)
-            with open('{}/com-{}.all.cmty.txt'.format(self.dataset, self.dataset), 'r') as f:
+            postfix = ""
+            if self.dataset == "amazon":
+                postfix = ".dedup"
+            dataset_filename = "com-{}.all{}.cmty.txt".format(dataset, postfix)
+            self.dataset_filepath = osp.join(dataset_path, dataset_filename)
+            with open(self.dataset_filepath, 'r') as f:
                 for line in f.readlines():
                     if '#' not in line and len(line) > 0:
                         members = line.strip().split('\t')
-                        if len(members) >= self.min_size and len(members) <= max_size:
+                        if (len(members) >= self.min_size and
+                                len(members) <= max_size):
                             self.group_size += 1
 
-            with open('{}/com-{}.ungraph.txt'.format(self.dataset, self.dataset), 'r') as f:
+            ungraph_filepath = osp.join(
+                dataset_path, "com-{}.ungraph.txt".format(self.dataset))
+            with open(ungraph_filepath, 'r') as f:
                 while True:
                     try:
                         line = f.readline()
@@ -140,28 +159,29 @@ class SNAPCommunity(Dataset):
                         if str(m) not in user2id:
                             user2id[str(m)] = len(user2id)
 
-            with open('{}/user2id.pkl'.format(self.dataset), 'wb') as f:
+            with open(user2id_filepath, 'wb') as f:
                 pickle.dump(user2id, f)
-            with open('{}/group_size.pkl'.format(self.dataset), 'wb') as f:
+            with open(group_size_filepath, 'wb') as f:
                 pickle.dump(self.group_size, f)
         self.user2id = user2id
 
         print('group size : ', self.group_size)
         print('total user : ', len(self.user2id))
-        self.processed_file_idx = [ idx for idx in range(self.group_size)]
+        self.processed_file_idx = [idx for idx in range(self.group_size)]
 
         self.user_map = None
-        super(SNAPCommunity, self).__init__('./', transform=None, pre_transform=None)
+        super(SNAPCommunity, self).__init__(osp.join("processed", dataset), transform=None, pre_transform=None)
         self.process()
         # self.data, self.slices = torch.load(self.processed_paths[0])
 
     @property
     def processed_file_names(self):
         return [
-            '{}_{}_{}_{}_{}.pt'.format(self.dataset, self.cutoff, self.ratio, self.min_size, idx)
+            '{}_{}_{}_{}_{}.pt'.format(
+                self.dataset, self.cutoff, self.ratio, self.min_size, idx)
             for idx in self.processed_file_idx
         ]
-    
+
     def _download(self):
         pass
 
@@ -171,8 +191,8 @@ class SNAPCommunity(Dataset):
 
     def process(self):
         user2id = self.user2id
-        all_found = True
         length = 0
+        print(self.processed_dir)
         for idx in range(self.group_size):
             filename = '{}_{}_{}_{}_{}_v2.pt'.format(self.dataset, self.cutoff, self.ratio, self.min_size, idx)
             length = idx
@@ -184,15 +204,17 @@ class SNAPCommunity(Dataset):
 
         if length != 0:
             self.group_size = length
-            self.processed_file_idx = [ idx for idx in range(self.group_size)]
+            self.processed_file_idx = [idx for idx in range(self.group_size)]
             return
 
         member2group = defaultdict(list)
         group2member = defaultdict(list)
         edges = defaultdict(int)
         print('found pretrain embeddings...')
+        dataset_filename = "com-{}.ungraph.txt".format(self.dataset)
+        dataset_filepath = osp.join("data", self.dataset, dataset_filename)
         # create member edge
-        with open('{}/com-{}.ungraph.txt'.format(self.dataset, self.dataset), 'r') as f, tqdm() as pbar:
+        with open(dataset_filepath, 'r') as f, tqdm() as pbar:
             while True:
                 pbar.update(1)
                 try:
@@ -204,12 +226,12 @@ class SNAPCommunity(Dataset):
                     break
                 if '#' in line or len(line) < 2:
                     continue
-                edge = [ str(int(m)) for m in line.strip().split('\t')]
+                edge = [str(int(m)) for m in line.strip().split('\t')]
                 edge = '_'.join(edge)
                 edges[edge] = 1
         print('load community graph')
         # load directed graph
-        with open('{}/com-{}.all.cmty.txt'.format(self.dataset, self.dataset), 'r') as f,tqdm() as pbar: 
+        with open(self.dataset_filepath, 'r') as f, tqdm() as pbar:
             while True:
                 try:
                     line = f.readline()
@@ -220,8 +242,9 @@ class SNAPCommunity(Dataset):
                 if '#' in line or len(line) < 2:
                     continue
                 members = line.strip().split('\t')
-                members = [ int(m) for m in members]
-                if len(members) < self.min_size or len(members) > self.max_size:
+                members = [int(m) for m in members]
+                if (len(members) < self.min_size or
+                        len(members) > self.max_size):
                     continue
                 group_id = len(group2member)
                 group2member[group_id] = members
@@ -236,23 +259,21 @@ class SNAPCommunity(Dataset):
         for edge in edges:
             src, dst = edge.split('_')
             src, dst = int(src), int(dst)
-            
             if not G.has_node(src):
                 G.add_node(src, group=member2group[src])
-
             if not G.has_node(dst):
                 G.add_node(dst, group=member2group[dst])
-            
             if G.has_node(src) and G.has_node(dst):
                 G.add_edge(src, dst)
-            
 
         print('populate sub graph')
-        # sub_graphs = create_sub_graph(G, group2member, exist_ratio=self.ratio, 
+        # sub_graphs = create_sub_graph(G, group2member,
+        #                               exist_ratio=self.ratio,
         #     cutoff=self.cutoff, min_size=self.min_size)
         idx = 0
-        for sub in create_sub_graph(G, group2member, exist_ratio=self.ratio, 
-            cutoff=self.cutoff, min_size=self.min_size):
+        for sub in create_sub_graph(G, group2member, exist_ratio=self.ratio,
+                                    cutoff=self.cutoff,
+                                    min_size=self.min_size):
             if len(sub.nodes) == 0:
                 continue
             data = graph2data(sub, user2id)
@@ -279,6 +300,7 @@ class SNAPCommunity(Dataset):
         data = torch.load(osp.join(self.processed_dir, filename))
         return data
 
+
 if __name__ == "__main__":
     import torch.nn.functional as F
     from torch_geometric.nn import GCNConv
@@ -286,6 +308,7 @@ if __name__ == "__main__":
     layer = GCNConv(64, 1)
     dataset = SNAPCommunity('dblp', cutoff=2, ratio=0.8)
     # dataset[:540]
+
     class Net(torch.nn.Module):
         def __init__(self):
             super(Net, self).__init__()
@@ -300,27 +323,28 @@ if __name__ == "__main__":
             # x, edge_index = data.x, data.edge_index
             x = self.conv1(x, edge_index)
             x = F.relu(x)
-            x = F.dropout(x,p=0.1, training=self.training)
+            x = F.dropout(x, p=0.1, training=self.training)
             x = self.conv2(x, edge_index)
             x = F.relu(x)
-            x = F.dropout(x,p=0.1, training=self.training)
+            x = F.dropout(x, p=0.1, training=self.training)
             x = self.conv3(x, edge_index)
             x = F.relu(x)
-            x = F.dropout(x,p=0.1, training=self.training)
+            x = F.dropout(x, p=0.1, training=self.training)
             x = self.conv4(x, edge_index)
-
             return x
+
     model = Net()
     model = model.cuda()
     model.train()
 
     print(len(dataset))
 
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0005, weight_decay=5e-4)
+    optimizer = torch.optim.Adam(
+        model.parameters(), lr=0.0005, weight_decay=5e-4)
     pos_weight = torch.ones([1])*30
     pos_weight = pos_weight.cuda()
     criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-    loader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=4, )
+    loader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=4)
 
     for epoch in range(200):
         print(epoch)
@@ -341,13 +365,13 @@ if __name__ == "__main__":
                 optimizer.step()
 
                 targets.append(data.y.cpu().detach().numpy())
-                predictions.append( output.cpu().detach().numpy() )
+                predictions.append(output.cpu().detach().numpy())
                 # break
                 pbar.update(1)
                 pbar.set_description("loss {:.4f}".format(loss.item()))
 
         targets = np.concatenate(targets)
-        predictions = np.concatenate(predictions) > 0.5 
+        predictions = np.concatenate(predictions) > 0.5
         print(np.sum(predictions), np.sum(targets))
         score = f1_score(targets, predictions, average="micro")
         baselines = np.zeros(targets.shape)
