@@ -80,6 +80,8 @@ if __name__ == "__main__":
     test_loader = DataLoader(valid_dataset,
                                  batch_size=1,
                                  shuffle=False)
+    candidate_pool_all = False
+    print('candidate_pool_all ', candidate_pool_all)
     for data in tqdm(test_loader, dynamic_ncols=True):
         existing_users_idx = data.x[:, 1] 
         input_users_id = data.x[:, 0].flatten()
@@ -92,9 +94,25 @@ if __name__ == "__main__":
         if len(user_words) == 0:
             raise ValueError('No valid exist user')
 
-        ms = model.most_similar(positive=user_words, topn=args.topk)
+        if candidate_pool_all:
+            ms = model.most_similar(positive=user_words, topn=args.topk)
+        else:
+            non_existing_users_id = input_users_id[ existing_users_idx == 0 ].numpy()
+            candidates = [ id2user[user] for user in non_existing_users_id if id2user[user] in model.vocab ]
+            candidates_scores = defaultdict(int)
+            # print(len(candidates))
+            for cand in candidates:
+                for known_user in user_words:
+                    candidates_scores[cand]+= model.similarity( known_user, cand )
+            candidates_scores = [ (cand, score)  for cand, score in candidates_scores.items() ]
+            candidates_scores.sort(key= lambda x: x[1], reverse=True)
+            # print(candidates_scores)
+            ms = candidates_scores[:args.topk]
+            # break
+
         for new_user, score in ms:
             pred_users_rank[new_user] += score
+
         pred_users = []
         for user, score in pred_users_rank.items():
             pred_users.append((user, score))

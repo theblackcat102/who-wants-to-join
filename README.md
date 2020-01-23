@@ -126,4 +126,43 @@ https://monova.org/165bd18d9c34582509fd252ac45e930c9ebc9e8f
 
 https://archive.org/details/oxford-2005-facebook-matrix
 
+100 group as university
+
+Node attribute:
+
+1. Student faction
+2. Gender
+3. Major
+4. Second Major
+5. Dorm
+6. Year
+7. High school
+
+Not sure what is this
+
+http://law.di.unimi.it/webdata/fb-current/
+
+
+Flickr:
+
+1. http://socialcomputing.asu.edu/datasets/Flickr
+
+
+Number of users : 80,513
+Number of friendship pairs: 5,899,882
+Number of groups: 195
+
+2. http://socialnetworks.mpi-sws.org/data-imc2007.html
+
+
+Github
+
+Task : predict which member to add to project
+
+follow, star, commit
+
+
+
+https://www.gharchive.org/
+
 
