@@ -1,19 +1,24 @@
-from copy import deepcopy
-from torch_geometric.data import Dataset, Data, DataLoader
-import networkx as nx
-import numpy as np
-from collections import defaultdict
-from tqdm import tqdm
-from sklearn.metrics import f1_score
-import os.path as osp
 import os
+import os.path as osp
+from copy import deepcopy
+import random
+import pickle
+from collections import defaultdict
+from itertools import islice
+import multiprocessing as mp
+from tqdm import tqdm
+import numpy as np
+import networkx as nx
+from sklearn.metrics import f1_score
 import torch
 from torch.autograd import Variable
-import random
+from torch_geometric.data import Dataset, Data, DataLoader
 
-import pickle
-# with open('{}/user2id.pkl'.format('amazon'), 'rb') as f:
-#     user2id = pickle.load(f)
+
+def chunks(data, SIZE=10000):
+    it = iter(data)
+    for i in range(0, len(data), SIZE):
+        yield {k: data[k] for k in islice(it, SIZE)}
 
 
 def graph2data(G, name2id):
@@ -53,19 +58,21 @@ def graph2data(G, name2id):
     return Data(x=x, edge_index=edges, y=y)
 
 
-def create_sub_graph(G, group2member, exist_ratio=0.8, cutoff=2, min_size=2,
-                     max_size=1000):
-    # hit_rate = []
+def create_sub_graph(G, group2member, user2id, processed_dir='./processed',
+                     dataset='amazon', startidx=0, exist_ratio=0.8, cutoff=2,
+                     min_size=2, max_size=1000, pre_filter=None,
+                     pre_transform=None):
+    idx = startidx
     for group_id, members in tqdm(group2member.items(), dynamic_ncols=True):
         random.shuffle(members)
-        ratio = int(len(members)*exist_ratio)
-        predict_ratio = len(members) - ratio
+        ratio_ = int(len(members)*exist_ratio)
+        predict_ratio = len(members) - ratio_
         # make sure there's at least 2 group member to predict
         if predict_ratio < 2:
             predict_ratio = 2
-            ratio = len(members) - predict_ratio
+            ratio_ = len(members) - predict_ratio
 
-        exist_nodes = members[:ratio]
+        exist_nodes = members[:ratio_]
 
         # find nodes reachable from start_node within cutoff distance
         sub_graph_nodes = []
@@ -91,15 +98,21 @@ def create_sub_graph(G, group2member, exist_ratio=0.8, cutoff=2, min_size=2,
             sub_G.add_node(node, in_group=in_group, predict=predict,
                            known_member=known_member)
 
-        # hit_rate.append(in_group_cnt/len(members))
-        # print('total : ',in_group_cnt)
-        # print(len(sub_G.nodes))
-
         for node in sub_graph_nodes:
             for n in G.neighbors(node):
                 if sub_G.has_node(node) and sub_G.has_node(n):
                     sub_G.add_edge(node, int(n))
-        yield sub_G
+        if len(sub_G.nodes) == 0:
+            continue
+        data = graph2data(sub_G, user2id)
+        if pre_filter is not None and not pre_filter(data):
+            continue
+        if pre_transform is not None:
+            data = pre_transform(data)
+        filename = '{}_{}_{}_{}_{}_v2.pt'.format(
+                dataset, cutoff, exist_ratio, min_size, idx)
+        torch.save(data, osp.join(processed_dir, filename))
+        idx += 1
 
 
 class SNAPCommunity(Dataset):
@@ -111,7 +124,6 @@ class SNAPCommunity(Dataset):
         self.min_size = min_size
         self.max_size = max_size
         self.group_size = 0
-        self.processed_file_idx = [idx for idx in range(self.group_size)]
 
         self.user_map = None
         embedding_filename = 'graphv/{}-64-DeepWalk.pkl'.format(self.dataset)
@@ -182,7 +194,7 @@ class SNAPCommunity(Dataset):
     @property
     def processed_file_names(self):
         return [
-            '{}_{}_{}_{}_{}.pt'.format(
+            '{}_{}_{}_{}_{}_v2.pt'.format(
                 self.dataset, self.cutoff, self.ratio, self.min_size, idx)
             for idx in self.processed_file_idx
         ]
@@ -207,7 +219,7 @@ class SNAPCommunity(Dataset):
                 # all_found = False
                 length = idx
                 break
-
+        print('length: {}'.format(length))
         if length != 0:
             self.group_size = length
             self.processed_file_idx = [idx for idx in range(self.group_size)]
@@ -217,10 +229,10 @@ class SNAPCommunity(Dataset):
         group2member = defaultdict(list)
         edges = defaultdict(int)
         print('found pretrain embeddings...')
-        dataset_filename = "com-{}.ungraph.txt".format(self.dataset)
-        dataset_filepath = osp.join("data", self.dataset, dataset_filename)
+        edges_filename = "com-{}.ungraph.txt".format(self.dataset)
+        edges_filepath = osp.join("data", self.dataset, edges_filename)
         # create member edge
-        with open(dataset_filepath, 'r') as f, tqdm() as pbar:
+        with open(edges_filepath, 'r') as f, tqdm() as pbar:
             while True:
                 pbar.update(1)
                 try:
@@ -277,22 +289,20 @@ class SNAPCommunity(Dataset):
         #                               exist_ratio=self.ratio,
         #     cutoff=self.cutoff, min_size=self.min_size)
         idx = 0
-        for sub in create_sub_graph(G, group2member, exist_ratio=self.ratio,
-                                    cutoff=self.cutoff,
-                                    min_size=self.min_size):
-            if len(sub.nodes) == 0:
-                continue
-            data = graph2data(sub, user2id)
-
-            if self.pre_filter is not None and not self.pre_filter(data):
-                continue
-            if self.pre_transform is not None:
-                data = self.pre_transform(data)
-
-            filename = '{}_{}_{}_{}_{}_v2.pt'.format(
-                self.dataset, self.cutoff, self.ratio, self.min_size, idx)
-            torch.save(data, osp.join(self.processed_dir, filename))
-            idx += 1
+        chunk_size = len(group2member)//mp.cpu_count()
+        pool = mp.Pool(processes=mp.cpu_count())
+        for sub_group2member in chunks(group2member, chunk_size):
+            args = [G, sub_group2member, user2id, ]
+            kwds = {
+                'processed_dir': self.processed_dir, 'dataset': self.dataset,
+                'startidx': idx, 'exist_ratio': self.ratio,
+                'cutoff': self.cutoff, 'min_size': self.min_size,
+                'max_size': 1000, 'pre_filter': self.pre_filter,
+                'pre_transform': self.pre_transform}
+            pool.apply_async(create_sub_graph, args=args, kwds=kwds)
+            idx += len(sub_group2member)
+        pool.close()
+        pool.join()
         print('Total {}'.format(idx))
 
     def __len__(self):
@@ -314,8 +324,8 @@ if __name__ == "__main__":
     from torch_geometric.nn import GCNConv
     import torch.nn as nn
     layer = GCNConv(64, 1)
-    dataset = SNAPCommunity('dblp', cutoff=2, ratio=0.8)
-    # dataset[:540]
+    dataset = SNAPCommunity('amazon')
+    dataset[:540]
 
     class Net(torch.nn.Module):
         def __init__(self):
