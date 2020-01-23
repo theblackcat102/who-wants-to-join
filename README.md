@@ -118,3 +118,12 @@ Bug may lies in : Trainer section /  Dataset / Evaluation method
 
 [ ] check F1 evaluation method ( pair review with james ) 
 
+
+
+Facebook link:
+
+https://monova.org/165bd18d9c34582509fd252ac45e930c9ebc9e8f
+
+https://archive.org/details/oxford-2005-facebook-matrix
+
+

@@ -11,6 +11,8 @@ import os
 import os.path as osp
 import numpy as np
 
+from src.utils import dict2table
+
 
 def confusion(prediction, truth):
     """ Returns the confusion matrix for the values in the `prediction` and
@@ -73,7 +75,7 @@ class GroupGCN():
         self.args = args
 
         self.log_path = osp.join(
-            "logs", "gcn", datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+            "logs", "gcn", args.dataset+'_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
         self.writer = SummaryWriter(log_dir=self.log_path)
         self.save_path = osp.join(self.log_path, "models")
         os.makedirs(self.save_path, exist_ok=True)
@@ -143,11 +145,15 @@ class GroupGCN():
             'amazon': 80,
             'dblp': 100,
         }
-        weight = 100  # default
-        if args.dataset in position_weight:
-            weight = position_weight[args.dataset]
+        if args.pos_weight <= 0:
+            weight = 100  # default
+            if args.dataset in position_weight:
+                weight = position_weight[args.dataset]
+            args.pos_weight = weight
+        else:
+            weight = args.pos_weight
         optimizer = torch.optim.Adam(
-            model.parameters(), lr=0.001, weight_decay=5e-4)
+            model.parameters(), lr=args.lr, weight_decay=5e-4)
         print('weight : ', weight)
         pos_weight = torch.ones([1])*weight
         pos_weight = pos_weight.cuda()
@@ -155,6 +161,9 @@ class GroupGCN():
 
         n_iter = 0
         best_f1 = 0
+
+        self.writer.add_text('Text', dict2table(vars(args)), 0)
+
         with tqdm(total=len(train_loader)*epochs, dynamic_ncols=True) as pbar:
             for epoch in range(epochs):
                 for data in train_loader:
@@ -226,6 +235,8 @@ if __name__ == "__main__":
     # training parameters
     parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--batch-size', type=int, default=64)
+    parser.add_argument('--lr', type=float, default=0.001)
+    parser.add_argument('--pos-weight', type=float, default=-1)
     parser.add_argument('--eval', type=int, default=10)
     parser.add_argument('--save', type=int, default=50)
     # model parameters
