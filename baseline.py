@@ -77,7 +77,7 @@ if __name__ == "__main__":
     print('start evaluate')
     B, user_size = 1, len(user2id)
     stats = []
-    test_loader = DataLoader(valid_dataset,
+    test_loader = DataLoader(test_dataset,
                                  batch_size=1,
                                  shuffle=False)
     candidate_pool_all = False

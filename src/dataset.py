@@ -63,6 +63,7 @@ def create_sub_graph(G, group2member, user2id, processed_dir='./processed',
                      min_size=2, max_size=1000, pre_filter=None,
                      pre_transform=None):
     idx = startidx
+    filename_prefix = '{}_{}_{}_{}'.format(dataset, cutoff, exist_ratio, min_size)
     for group_id, members in tqdm(group2member.items(), dynamic_ncols=True):
         random.shuffle(members)
         ratio_ = int(len(members)*exist_ratio)
@@ -109,8 +110,7 @@ def create_sub_graph(G, group2member, user2id, processed_dir='./processed',
             continue
         if pre_transform is not None:
             data = pre_transform(data)
-        filename = '{}_{}_{}_{}_{}_v2.pt'.format(
-                dataset, cutoff, exist_ratio, min_size, idx)
+        filename = filename_prefix+'_{}_v2.pt'.format(idx)
         torch.save(data, osp.join(processed_dir, filename))
         idx += 1
 
