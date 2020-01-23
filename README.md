@@ -60,7 +60,7 @@ python -m baseline.cluster
 
 ### GCN
 
-python -m src.trainer.py
+python -m src.trainer
 
 
 # Tensorboard

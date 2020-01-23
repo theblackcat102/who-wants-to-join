@@ -75,7 +75,8 @@ class GroupGCN():
         self.args = args
 
         self.log_path = osp.join(
-            "logs", "gcn", args.dataset+'_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+            "logs", "gcn",
+            args.dataset+'_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
         self.writer = SummaryWriter(log_dir=self.log_path)
         self.save_path = osp.join(self.log_path, "models")
         os.makedirs(self.save_path, exist_ok=True)
