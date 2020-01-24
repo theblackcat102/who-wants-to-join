@@ -1,16 +1,16 @@
-from datetime import datetime
-from src.layers import StackedGCN
-from src.dataset import SNAPCommunity
-from torch_geometric.data import DataLoader
+
+import os
+import os.path as osp
+import pickle
 import random
+from datetime import datetime
+import numpy as np
 from tqdm import tqdm
 import torch
 from torch.utils.tensorboard import SummaryWriter
-import pickle
-import os
-import os.path as osp
-import numpy as np
-
+from torch_geometric.data import DataLoader
+from src.layers import StackedGCN
+from src.dataset import SNAPCommunity
 from src.utils import dict2table
 
 
@@ -92,7 +92,6 @@ class GroupGCN():
         precisions = []
         B = args.batch_size
         user_size = len(self.train_dataset.user2id)
-        print('Validation')
         with torch.no_grad():
             y_pred = torch.FloatTensor(B, user_size)
             y_target = torch.FloatTensor(B, user_size)
@@ -127,13 +126,16 @@ class GroupGCN():
         args = self.args
         train_loader = DataLoader(self.train_dataset,
                                   batch_size=args.batch_size,
-                                  shuffle=True)
+                                  shuffle=True,
+                                  num_workers=4)
         valid_loader = DataLoader(self.valid_dataset,
                                   batch_size=args.batch_size,
-                                  shuffle=False)
+                                  shuffle=False,
+                                  num_workers=4)
         test_loader = DataLoader(self.test_dataset,
                                  batch_size=args.batch_size,
-                                 shuffle=False)
+                                 shuffle=False,
+                                 num_workers=4)
 
         model = StackedGCN(len(self.train_dataset.user2id),
                            args.input_dim,
@@ -186,7 +188,6 @@ class GroupGCN():
                     n_iter += 1
 
                 if epoch % args.eval == 0:
-                    print('Epoch: ', epoch)
                     f1, recalls, precisions = self.evaluate(valid_loader,
                                                             model)
                     self.writer.add_scalar("Valid/F1", f1, n_iter)
@@ -201,7 +202,6 @@ class GroupGCN():
                             'optimizer': optimizer.state_dict(),
                             'f1': f1
                         }
-                    print(f1)
 
                 if epoch % args.save == 0:
                     self.save_checkpoint({

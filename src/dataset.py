@@ -15,15 +15,14 @@ from torch.autograd import Variable
 from torch_geometric.data import Dataset, Data, DataLoader
 
 
-def chunks(data, SIZE=10000):
+def chunks(data, size=10000):
     it = iter(data)
-    for i in range(0, len(data), SIZE):
-        yield {k: data[k] for k in islice(it, SIZE)}
+    for i in range(0, len(data), size):
+        yield {k: data[k] for k in islice(it, size)}
 
 
 def graph2data(G, name2id):
     graph_idx = {}
-
     # does the order of sub-graph index matter?
     # seems to me it's relative to one and another?
     for n in G.nodes:
@@ -58,13 +57,14 @@ def graph2data(G, name2id):
     return Data(x=x, edge_index=edges, y=y)
 
 
-def create_sub_graph(G, group2member, user2id, processed_dir='./processed',
-                     dataset='amazon', startidx=0, exist_ratio=0.8, cutoff=2,
-                     min_size=2, max_size=1000, pre_filter=None,
-                     pre_transform=None):
+def create_sub_graph(G, group2member, user2id, pbar_queue,
+                     processed_dir='./processed', dataset='amazon', startidx=0,
+                     exist_ratio=0.8, cutoff=2, min_size=2, max_size=1000,
+                     pre_filter=None, pre_transform=None):
     idx = startidx
-    filename_prefix = '{}_{}_{}_{}'.format(dataset, cutoff, exist_ratio, min_size)
-    for group_id, members in tqdm(group2member.items(), dynamic_ncols=True):
+    filename_prefix = '{}_{}_{}_{}'.format(dataset, cutoff, exist_ratio,
+                                           min_size)
+    for group_id, members in group2member.items():
         random.shuffle(members)
         ratio_ = int(len(members)*exist_ratio)
         predict_ratio = len(members) - ratio_
@@ -83,7 +83,7 @@ def create_sub_graph(G, group2member, user2id, processed_dir='./processed',
             sub_graph_nodes += [n for n in n_nodes]
             sub_graph_nodes.append(start_node)
 
-        # Build subgraph
+        # build subgraph
         sub_graph_nodes = set(sub_graph_nodes)
         sub_G = nx.Graph()
         in_group_cnt = 0
@@ -105,14 +105,20 @@ def create_sub_graph(G, group2member, user2id, processed_dir='./processed',
                     sub_G.add_edge(node, int(n))
         if len(sub_G.nodes) == 0:
             continue
+        # graph to data
         data = graph2data(sub_G, user2id)
         if pre_filter is not None and not pre_filter(data):
             continue
         if pre_transform is not None:
             data = pre_transform(data)
+        # save data
         filename = filename_prefix+'_{}_v2.pt'.format(idx)
         torch.save(data, osp.join(processed_dir, filename))
         idx += 1
+        # clear memory
+        sub_G.clear()
+        del sub_G, sub_graph_nodes
+    pbar_queue.put(len(group2member))
 
 
 class SNAPCommunity(Dataset):
@@ -219,7 +225,6 @@ class SNAPCommunity(Dataset):
                 # all_found = False
                 length = idx
                 break
-        print('length: {}'.format(length))
         if length != 0:
             self.group_size = length
             self.processed_file_idx = [idx for idx in range(self.group_size)]
@@ -289,10 +294,26 @@ class SNAPCommunity(Dataset):
         #                               exist_ratio=self.ratio,
         #     cutoff=self.cutoff, min_size=self.min_size)
         idx = 0
-        chunk_size = len(group2member)//mp.cpu_count()
+        manager = mp.Manager()
+
+        # one progressbar for multiprocessing
+        def pbar_listener(q, total_size):
+            pbar = tqdm(total=total_size)
+            while True:
+                item = q.get()
+                if item is None:
+                    break
+                pbar.update(item)
+
+        pbar_queue = manager.Queue()
+        pbar_proc = mp.Process(target=pbar_listener,
+                               args=[pbar_queue, len(group2member), ])
+        pbar_proc.start()
+        # chunkize to cpu_count()*5 for better load balance
+        chunk_size = len(group2member)//mp.cpu_count()//5
         pool = mp.Pool(processes=mp.cpu_count())
         for sub_group2member in chunks(group2member, chunk_size):
-            args = [G, sub_group2member, user2id, ]
+            args = [G, sub_group2member, user2id, pbar_queue, ]
             kwds = {
                 'processed_dir': self.processed_dir, 'dataset': self.dataset,
                 'startidx': idx, 'exist_ratio': self.ratio,
@@ -303,6 +324,8 @@ class SNAPCommunity(Dataset):
             idx += len(sub_group2member)
         pool.close()
         pool.join()
+        pbar_queue.put(None)
+        pbar_proc.join()
         print('Total {}'.format(idx))
 
     def __len__(self):
