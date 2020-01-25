@@ -153,8 +153,5 @@ dmypy.json
 # Vscode
 .vscode
 
-# data
-amazon_shuffle_idx.pkl
-
 # tensorboard
 logs

@@ -43,15 +43,16 @@ def confusion(prediction, truth):
 class GroupGCN():
     def __init__(self, args):
         dataset = SNAPCommunity(args.dataset, cutoff=args.maxhop)
-
         # make sure each runs share the same results
-        if osp.exists(args.dataset+'_shuffle_idx.pkl'):
-            with open(args.dataset+'_shuffle_idx.pkl', 'rb') as f:
+        shuffle_idx_path = osp.join(dataset.processed_dir,
+                                    args.dataset+'_shuffle_idx.pkl')
+        if osp.exists(shuffle_idx_path):
+            with open(shuffle_idx_path, 'rb') as f:
                 shuffle_idx = pickle.load(f)
         else:
             shuffle_idx = [idx for idx in range(len(dataset))]
             random.shuffle(shuffle_idx)
-            with open(args.dataset+'_shuffle_idx.pkl', 'wb') as f:
+            with open(shuffle_idx_path, 'wb') as f:
                 pickle.dump(shuffle_idx, f)
 
         dataset = dataset[shuffle_idx]
@@ -90,18 +91,16 @@ class GroupGCN():
         model.eval()
         recalls = []
         precisions = []
-        B = args.batch_size
         user_size = len(self.train_dataset.user2id)
         with torch.no_grad():
-            y_pred = torch.FloatTensor(B, user_size)
-            y_target = torch.FloatTensor(B, user_size)
             for val_data in tqdm(dataloader, dynamic_ncols=True):
                 x, edge_index = val_data.x, val_data.edge_index
                 y = val_data.y
+                batch_size = val_data.num_graphs
                 pred = model(edge_index.cuda(), x.cuda())
                 pred = pred.cpu()
-                y_pred.zero_()
-                y_target.zero_()
+                y_pred = torch.zeros(batch_size, user_size)
+                y_target = torch.zeros(batch_size, user_size)
 
                 for idx, batch_idx in enumerate(val_data.batch):
                     if y[idx] == 1:
