@@ -16,6 +16,7 @@ from torch_geometric.data import Dataset, Data, DataLoader
 from src.dataset import split_group
 import gzip
 import pandas as pd
+from time import sleep
 
 MEETUP_FOLDER = 'meetup_v2/'
 MEETUP_GROUP = 'meetup_v2/groups.csv'
@@ -250,7 +251,7 @@ def graph2data(G, name2id, member2topic, group2topic, category2id, group2id, top
 
 
 def async_graph_save(group, group_mappings, ratio, cutoff, G, 
-    user2id,member2topic, group2topic, category2id, group2id, topic2id,
+    user2id, member2topic, group2topic, category2id, group2id, topic2id,
     filename_prefix, processed_dir, file_idx,
     pre_filter=None, pre_transform=None):
     group_id = group['group_id']
@@ -270,6 +271,7 @@ def async_graph_save(group, group_mappings, ratio, cutoff, G,
     filename = filename_prefix+'_{}_v2.pt'.format(file_idx)
 
     torch.save(data, osp.join(processed_dir, filename))
+    del G
 
 
 class Meetup(Dataset):
@@ -390,9 +392,9 @@ class Meetup(Dataset):
         filename_prefix = self.cache_file_prefix
         processed_dir = self.processed_dir
 
-        pool = mp.Pool(processes=6)
+        pool = mp.Pool(processes=8)
         results = []
-        for group in tqdm(second_half_group, dynamic_ncols=True):
+        for group_idx, group in tqdm(enumerate(second_half_group), total=len(second_half_group), dynamic_ncols=True):
             group_id = group['group_id']
             members = group_mappings[int(group_id)]
 
@@ -423,6 +425,8 @@ class Meetup(Dataset):
             res = pool.apply_async(async_graph_save, args=args, kwds=kwds)
             results.append(res)
             file_idx += 1
+            if group_idx % 200 == 0 and group_idx != 0:
+                sleep(10)
         # for res in results:
         #     res.get()
         pool.close()

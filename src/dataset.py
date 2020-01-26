@@ -20,7 +20,6 @@ def chunks(data, size=10000):
     for i in range(0, len(data), size):
         yield {k: data[k] for k in islice(it, size)}
 
-
 def graph2data(G, name2id):
     graph_idx = {}
     # does the order of sub-graph index matter?
@@ -44,7 +43,7 @@ def graph2data(G, name2id):
         new_edges = []
         for idx in range(len(edge_index)):
             src, dst = edge_index[idx]
-            # edge_index[idx] = [graph_idx[src], graph_idx[dst]]
+            edge_index[idx] = [graph_idx[src], graph_idx[dst]]
             new_edges.append([graph_idx[dst], graph_idx[src]])
         edges.append(new_edges)
         nodes.append(node_latent)
@@ -57,61 +56,52 @@ def graph2data(G, name2id):
     return Data(x=x, edge_index=edges, y=y)
 
 
-
-def split_group(group_id, members, G, exist_ratio, cutoff):
-    random.shuffle(members)
-    ratio_ = int(len(members)*exist_ratio)
-    predict_ratio = len(members) - ratio_
-    # make sure there's at least 2 group member to predict
-    if predict_ratio < 2:
-        predict_ratio = 2
-        ratio_ = len(members) - predict_ratio
-
-    exist_nodes = members[:ratio_]
-
-    # find nodes reachable from start_node within cutoff distance
-    sub_graph_nodes = []
-    for start_node in exist_nodes:
-
-        n_nodes = nx.single_source_shortest_path_length(G, start_node,
-                                                        cutoff=cutoff)
-        sub_graph_nodes += [n for n in n_nodes]
-        sub_graph_nodes.append(start_node)
-
-    # Build subgraph
-    sub_graph_nodes = set(sub_graph_nodes)
-    sub_G = nx.Graph()
-    in_group_cnt = 0
-    for node in sub_graph_nodes:
-        in_group = 1 if node in members else 0
-        known_member = 1 if node in exist_nodes else 0
-        predict = 0
-        if node in exist_nodes:
-            predict = 0
-        elif node in members and node not in exist_nodes:
-            predict = 1
-        in_group_cnt += in_group
-        sub_G.add_node(node, in_group=in_group, predict=predict,
-                        known_member=known_member)
-
-    for node in sub_graph_nodes:
-        for n in G.neighbors(node):
-            if sub_G.has_node(node) and sub_G.has_node(n):
-                sub_G.add_edge(node, int(n))
-    return sub_G
-
-
-def create_sub_graph_cache(G, group2member, user2id, processed_dir='./processed',
-                     dataset='amazon', startidx=0, exist_ratio=0.8, cutoff=2,
-                     min_size=2, max_size=1000, pre_filter=None,
-                     pre_transform=None, filename_prefix=None):
-    # make sure G is undirected
-    assert G.is_directed() == False
+def create_sub_graph(G, group2member, user2id, pbar_queue,
+                     processed_dir='./processed', dataset='amazon', startidx=0,
+                     exist_ratio=0.8, cutoff=2, min_size=2, max_size=1000,
+                     pre_filter=None, pre_transform=None):
     idx = startidx
-    if filename_prefix is None:
-        filename_prefix = '{}_{}_{}_{}'.format(dataset, cutoff, exist_ratio, min_size)
-    for group_id, members in tqdm(group2member.items(), dynamic_ncols=True):
-        sub_G = split_group(group_id, members, G, exist_ratio, cutoff)
+    filename_prefix = '{}_{}_{}_{}'.format(dataset, cutoff, exist_ratio,
+                                           min_size)
+    for group_id, members in group2member.items():
+        random.shuffle(members)
+        ratio_ = int(len(members)*exist_ratio)
+        predict_ratio = len(members) - ratio_
+        # make sure there's at least 2 group member to predict
+        if predict_ratio < 2:
+            predict_ratio = 2
+            ratio_ = len(members) - predict_ratio
+
+        exist_nodes = members[:ratio_]
+
+        # find nodes reachable from start_node within cutoff distance
+        sub_graph_nodes = []
+        for start_node in exist_nodes:
+            n_nodes = nx.single_source_shortest_path_length(G, start_node,
+                                                            cutoff=cutoff)
+            sub_graph_nodes += [n for n in n_nodes]
+            sub_graph_nodes.append(start_node)
+
+        # build subgraph
+        sub_graph_nodes = set(sub_graph_nodes)
+        sub_G = nx.Graph()
+        in_group_cnt = 0
+        for node in sub_graph_nodes:
+            in_group = 1 if node in members else 0
+            known_member = 1 if node in exist_nodes else 0
+            predict = 0
+            if node in exist_nodes:
+                predict = 0
+            elif node in members and node not in exist_nodes:
+                predict = 1
+            in_group_cnt += in_group
+            sub_G.add_node(node, in_group=in_group, predict=predict,
+                           known_member=known_member)
+
+        for node in sub_graph_nodes:
+            for n in G.neighbors(node):
+                if sub_G.has_node(node) and sub_G.has_node(n):
+                    sub_G.add_edge(node, int(n))
         if len(sub_G.nodes) == 0:
             continue
         # graph to data
@@ -130,7 +120,6 @@ def create_sub_graph_cache(G, group2member, user2id, processed_dir='./processed'
     pbar_queue.put(len(group2member))
 
 
-
 class SNAPCommunity(Dataset):
     def __init__(self, dataset='amazon', cutoff=2, ratio=0.8, min_size=5,
                  max_size=500):
@@ -140,6 +129,13 @@ class SNAPCommunity(Dataset):
         self.min_size = min_size
         self.max_size = max_size
         self.group_size = 0
+
+        self.user_map = None
+        embedding_filename = 'graphv/{}-64-DeepWalk.pkl'.format(self.dataset)
+        if osp.exists(embedding_filename):
+            with open(embedding_filename, 'rb') as f:
+                embeddings = pickle.load(f)
+                self.user_map = embeddings['name2id']
 
         dataset_path = osp.join("data", dataset)
         postfix = ""
@@ -193,6 +189,7 @@ class SNAPCommunity(Dataset):
         print('total user : ', len(self.user2id))
         self.processed_file_idx = [idx for idx in range(self.group_size)]
 
+        self.user_map = None
         super(SNAPCommunity, self).__init__(osp.join("processed", dataset),
                                             transform=None,
                                             pre_transform=None)
@@ -322,7 +319,7 @@ class SNAPCommunity(Dataset):
                 'cutoff': self.cutoff, 'min_size': self.min_size,
                 'max_size': 1000, 'pre_filter': self.pre_filter,
                 'pre_transform': self.pre_transform}
-            pool.apply_async(create_sub_graph_cache, args=args, kwds=kwds)
+            pool.apply_async(create_sub_graph, args=args, kwds=kwds)
             idx += len(sub_group2member)
         pool.close()
         pool.join()
