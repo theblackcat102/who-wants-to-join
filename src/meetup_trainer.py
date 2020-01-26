@@ -42,8 +42,9 @@ def confusion(prediction, truth):
 
 class GroupGCN():
     def __init__(self, args):
-        dataset = Meetup(city_id=locations_id[args.dataset], cutoff=args.maxhop,
-            min_size=args.min_size, max_size=args.max_size)
+        dataset = Meetup(city_id=locations_id[args.dataset],
+                         cutoff=args.maxhop, min_size=args.min_size,
+                         max_size=args.max_size)
 
         # make sure each runs share the same results
         if osp.exists(args.dataset+'_shuffle_idx.pkl'):
@@ -59,8 +60,8 @@ class GroupGCN():
             topic2id = pickle.load(f)
         with open(os.path.join(MEETUP_FOLDER, 'cat2id.pkl'), 'rb') as f:
             cat2id = pickle.load(f)
-        with open(os.path.join(MEETUP_FOLDER, 'group2topic.pkl'), 'rb') as f:
-            group2topic = pickle.load(f)
+        # with open(os.path.join(MEETUP_FOLDER, 'group2topic.pkl'), 'rb') as f:
+        #     group2topic = pickle.load(f)
 
         self.category_size = len(cat2id)
         self.topic_size = len(topic2id)
@@ -141,25 +142,30 @@ class GroupGCN():
         args = self.args
         train_size = len(self.train_dataset.processed_file_idx)
         val_size = len(self.valid_dataset.processed_file_idx)
-        assert (len(set(self.valid_dataset.processed_file_idx+self.train_dataset.processed_file_idx))) == (train_size+val_size)
+        train_val_set_size = len(set(self.valid_dataset.processed_file_idx +
+                                     self.train_dataset.processed_file_idx))
+        assert train_val_set_size == (train_size+val_size)
 
         train_loader = DataLoader(self.train_dataset,
                                   batch_size=args.batch_size,
-                                  shuffle=True)
+                                  shuffle=True,
+                                  num_workers=4)
         valid_loader = DataLoader(self.valid_dataset,
                                   batch_size=args.batch_size,
-                                  shuffle=False)
+                                  shuffle=False,
+                                  num_workers=4)
         test_loader = DataLoader(self.test_dataset,
                                  batch_size=args.batch_size,
-                                 shuffle=False)
+                                 shuffle=False,
+                                 num_workers=4)
 
         model = StackedGCNMeetup(len(self.train_dataset.user2id),
-                           category_size=self.category_size,
-                           topic_size=self.topic_size,
-                           group_size=self.group_size,
-                           input_channels=args.input_dim,
-                           layers=args.layers,
-                           dropout=args.dropout)
+                                 category_size=self.category_size,
+                                 topic_size=self.topic_size,
+                                 group_size=self.group_size,
+                                 input_channels=args.input_dim,
+                                 layers=args.layers,
+                                 dropout=args.dropout)
         model = model.cuda()
 
         position_weight = {
