@@ -139,7 +139,10 @@ class GroupGCN():
 
     def train(self, epochs=200):
         args = self.args
-        print(self.train_dataset.processed_file_idx)
+        train_size = len(self.train_dataset.processed_file_idx)
+        val_size = len(self.valid_dataset.processed_file_idx)
+        assert (len(set(self.valid_dataset.processed_file_idx+self.train_dataset.processed_file_idx))) == (train_size+val_size)
+
         train_loader = DataLoader(self.train_dataset,
                                   batch_size=args.batch_size,
                                   shuffle=True)
@@ -258,7 +261,7 @@ if __name__ == "__main__":
     parser.add_argument('--maxhop', type=int, default=2)
     # training parameters
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--batch-size', type=int, default=5)
+    parser.add_argument('--batch-size', type=int, default=8)
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--pos-weight', type=float, default=-1)
     parser.add_argument('--eval', type=int, default=10)
