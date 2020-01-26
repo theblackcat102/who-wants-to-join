@@ -1,16 +1,16 @@
-from datetime import datetime
-from src.layers import StackedGCN
-from src.dataset import SNAPCommunity
-from torch_geometric.data import DataLoader
+
+import os
+import os.path as osp
+import pickle
 import random
+from datetime import datetime
+import numpy as np
 from tqdm import tqdm
 import torch
 from torch.utils.tensorboard import SummaryWriter
-import pickle
-import os
-import os.path as osp
-import numpy as np
-
+from torch_geometric.data import DataLoader
+from src.layers import StackedGCN
+from src.dataset import SNAPCommunity
 from src.utils import dict2table
 
 
@@ -46,13 +46,15 @@ class GroupGCN():
             max_size=args.max_size, min_size=args.min_size, ratio=args.ratio)
 
         # make sure each runs share the same results
-        if osp.exists(args.dataset+'_shuffle_idx.pkl'):
-            with open(args.dataset+'_shuffle_idx.pkl', 'rb') as f:
+        shuffle_idx_path = osp.join(dataset.processed_dir,
+                                    args.dataset+'_shuffle_idx.pkl')
+        if osp.exists(shuffle_idx_path):
+            with open(shuffle_idx_path, 'rb') as f:
                 shuffle_idx = pickle.load(f)
         else:
             shuffle_idx = [idx for idx in range(len(dataset))]
             random.shuffle(shuffle_idx)
-            with open(args.dataset+'_shuffle_idx.pkl', 'wb') as f:
+            with open(shuffle_idx_path, 'wb') as f:
                 pickle.dump(shuffle_idx, f)
 
         dataset = dataset[shuffle_idx]
@@ -91,19 +93,16 @@ class GroupGCN():
         model.eval()
         recalls = []
         precisions = []
-        B = args.batch_size
         user_size = len(self.train_dataset.user2id)
-        print('Validation')
         with torch.no_grad():
-            y_pred = torch.FloatTensor(B, user_size)
-            y_target = torch.FloatTensor(B, user_size)
             for val_data in tqdm(dataloader, dynamic_ncols=True):
                 x, edge_index = val_data.x, val_data.edge_index
                 y = val_data.y
+                batch_size = val_data.num_graphs
                 pred = model(edge_index.cuda(), x.cuda())
                 pred = pred.cpu()
-                y_pred.zero_()
-                y_target.zero_()
+                y_pred = torch.zeros(batch_size, user_size)
+                y_target = torch.zeros(batch_size, user_size)
 
                 for idx, batch_idx in enumerate(val_data.batch):
                     if y[idx] == 1:
@@ -128,13 +127,16 @@ class GroupGCN():
         args = self.args
         train_loader = DataLoader(self.train_dataset,
                                   batch_size=args.batch_size,
-                                  shuffle=True)
+                                  shuffle=True,
+                                  num_workers=4)
         valid_loader = DataLoader(self.valid_dataset,
                                   batch_size=args.batch_size,
-                                  shuffle=False)
+                                  shuffle=False,
+                                  num_workers=4)
         test_loader = DataLoader(self.test_dataset,
                                  batch_size=args.batch_size,
-                                 shuffle=False)
+                                 shuffle=False,
+                                 num_workers=4)
 
         model = StackedGCN(len(self.train_dataset.user2id),
                            args.input_dim,
@@ -187,7 +189,6 @@ class GroupGCN():
                     n_iter += 1
 
                 if epoch % args.eval == 0:
-                    print('Epoch: ', epoch)
                     f1, recalls, precisions = self.evaluate(valid_loader,
                                                             model)
                     self.writer.add_scalar("Valid/F1", f1, n_iter)
@@ -202,7 +203,6 @@ class GroupGCN():
                             'optimizer': optimizer.state_dict(),
                             'f1': f1
                         }
-                    print(f1)
 
                 if epoch % args.save == 0:
                     self.save_checkpoint({
