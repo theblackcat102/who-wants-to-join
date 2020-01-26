@@ -1,6 +1,6 @@
 from datetime import datetime
-from src.layers import StackedGCN
-from src.dataset import SNAPCommunity
+from src.layers import StackedGCNMeetup
+from src.meetup import Meetup, locations_id, MEETUP_FOLDER
 from torch_geometric.data import DataLoader
 import random
 from tqdm import tqdm
@@ -42,8 +42,8 @@ def confusion(prediction, truth):
 
 class GroupGCN():
     def __init__(self, args):
-        dataset = SNAPCommunity(args.dataset, cutoff=args.maxhop,
-            max_size=args.max_size, min_size=args.min_size, ratio=args.ratio)
+        dataset = Meetup(city_id=locations_id[args.dataset], cutoff=args.maxhop,
+            min_size=args.min_size, max_size=args.max_size)
 
         # make sure each runs share the same results
         if osp.exists(args.dataset+'_shuffle_idx.pkl'):
@@ -54,6 +54,17 @@ class GroupGCN():
             random.shuffle(shuffle_idx)
             with open(args.dataset+'_shuffle_idx.pkl', 'wb') as f:
                 pickle.dump(shuffle_idx, f)
+
+        with open(os.path.join(MEETUP_FOLDER, 'topic2id.pkl'), 'rb') as f:
+            topic2id = pickle.load(f)
+        with open(os.path.join(MEETUP_FOLDER, 'cat2id.pkl'), 'rb') as f:
+            cat2id = pickle.load(f)
+        with open(os.path.join(MEETUP_FOLDER, 'group2topic.pkl'), 'rb') as f:
+            group2topic = pickle.load(f)
+
+        self.category_size = len(cat2id)
+        self.topic_size = len(topic2id)
+        self.group_size = len(dataset.group2id)
 
         dataset = dataset[shuffle_idx]
 
@@ -100,8 +111,10 @@ class GroupGCN():
             for val_data in tqdm(dataloader, dynamic_ncols=True):
                 x, edge_index = val_data.x, val_data.edge_index
                 y = val_data.y
+                pred_mask = val_data.label_mask.cuda()
                 pred = model(edge_index.cuda(), x.cuda())
-                pred = pred.cpu()
+                pred = pred[pred_mask].cpu()
+                y = y[pred_mask]
                 y_pred.zero_()
                 y_target.zero_()
 
@@ -126,6 +139,7 @@ class GroupGCN():
 
     def train(self, epochs=200):
         args = self.args
+        print(self.train_dataset.processed_file_idx)
         train_loader = DataLoader(self.train_dataset,
                                   batch_size=args.batch_size,
                                   shuffle=True)
@@ -136,16 +150,18 @@ class GroupGCN():
                                  batch_size=args.batch_size,
                                  shuffle=False)
 
-        model = StackedGCN(len(self.train_dataset.user2id),
-                           args.input_dim,
-                           1,
-                           args.layers,
-                           args.dropout)
+        model = StackedGCNMeetup(len(self.train_dataset.user2id),
+                           category_size=self.category_size,
+                           topic_size=self.topic_size,
+                           group_size=self.group_size,
+                           input_channels=args.input_dim,
+                           layers=args.layers,
+                           dropout=args.dropout)
         model = model.cuda()
 
         position_weight = {
-            'amazon': 80,
-            'dblp': 100,
+            'NY': 100,
+            'SF': 100,
         }
         if args.pos_weight <= 0:
             weight = 100  # default
@@ -173,9 +189,11 @@ class GroupGCN():
                     x, edge_index = data.x, data.edge_index
                     x = x.cuda()
                     edge_index = edge_index.cuda()
+                    pred_mask = data.label_mask.cuda()
                     label = data.y.unsqueeze(-1).cuda().float()
                     output = model(edge_index, x)
-                    loss = criterion(output, label)
+
+                    loss = criterion(output[pred_mask], label[pred_mask])
                     loss.backward()
 
                     optimizer.step()
@@ -232,23 +250,23 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description='Deepset Recommendation Model')
     # dataset parameters
-    parser.add_argument('--dataset', type=str, default='amazon',
-                        choices=['amazon', 'dblp', 'youtube'])
+    parser.add_argument('--dataset', type=str, default='SF',
+                        choices=['NY', 'SF'])
     parser.add_argument('--min-size', type=int, default=5)
     parser.add_argument('--max-size', type=int, default=100)
-    parser.add_argument('--ratio', type=float, default=0.8)
+    parser.add_argument('--pred-ratio', type=float, default=0.8)
     parser.add_argument('--maxhop', type=int, default=2)
     # training parameters
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--batch-size', type=int, default=64)
+    parser.add_argument('--batch-size', type=int, default=5)
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--pos-weight', type=float, default=-1)
     parser.add_argument('--eval', type=int, default=10)
     parser.add_argument('--save', type=int, default=50)
     # model parameters
-    parser.add_argument('--input-dim', type=int, default=32)
+    parser.add_argument('--input-dim', type=int, default=8)
     parser.add_argument('--dropout', type=float, default=0.1)
-    parser.add_argument('--layers', nargs='+', type=int, default=[32, 32, 32])
+    parser.add_argument('--layers', nargs='+', type=int, default=[8, 8, 8])
 
     args = parser.parse_args()
 

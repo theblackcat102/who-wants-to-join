@@ -162,7 +162,17 @@ Task : predict which member to add to project
 follow, star, commit
 
 
-
 https://www.gharchive.org/
+
+
+~~MovieLens:~~
+
+Movie:
+    1. language
+    2. Director
+    4. Writer
+    5. country
+    3. Production company
+    4. Budget
 
 
