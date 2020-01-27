@@ -150,6 +150,8 @@ class GroupGCN():
 
         model = StackedGCNAmazon(len(self.train_dataset.user2id),
                            category_size=self.category_size,
+                           user_dim=args.user_dim,
+                           category_dim=args.cat_dim,
                            input_channels=args.input_dim,
                            layers=args.layers,
                            dropout=args.dropout)
@@ -238,10 +240,8 @@ class GroupGCN():
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser(
-        description='Deepset Recommendation Model')
+        description='Deepset Recommendation Model on Amazon with categories')
     # dataset parameters
-    parser.add_argument('--dataset', type=str, default='SF',
-                        choices=['NY', 'SF'])
     parser.add_argument('--min-size', type=int, default=5)
     parser.add_argument('--max-size', type=int, default=100)
     parser.add_argument('--pred-ratio', type=float, default=0.8)
@@ -249,14 +249,16 @@ if __name__ == "__main__":
     # training parameters
     parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--batch-size', type=int, default=64)
-    parser.add_argument('--lr', type=float, default=0.0005)
+    parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--pos-weight', type=float, default=-1)
     parser.add_argument('--eval', type=int, default=10)
     parser.add_argument('--save', type=int, default=50)
     # model parameters
-    parser.add_argument('--input-dim', type=int, default=8)
+    parser.add_argument('--user-dim', type=int, default=16)
+    parser.add_argument('--cat-dim', type=int, default=8)
+    parser.add_argument('--input-dim', type=int, default=32)
     parser.add_argument('--dropout', type=float, default=0.1)
-    parser.add_argument('--layers', nargs='+', type=int, default=[8, 8, 8])
+    parser.add_argument('--layers', nargs='+', type=int, default=[32, 32, 32])
 
     args = parser.parse_args()
 

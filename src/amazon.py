@@ -480,55 +480,55 @@ if __name__ == "__main__":
     from torch_geometric.nn import GCNConv
     import torch.nn as nn
     from src.layers import StackedGCNAmazon
-    # load_amazon_meta()
+    load_amazon_meta()
     # layer = GCNConv(64, 1)
     dataset = AmazonCommunity()
     # dataset[:540]
 
-    with open('data/amazon/cat2id.pkl', 'rb') as f:
-        cat2id = pickle.load(f)
-    model = StackedGCNAmazon(user_size=len(dataset.user2id), category_size=len(cat2id))
-    model = model.cuda()
-    model.train()
+    # with open('data/amazon/cat2id.pkl', 'rb') as f:
+    #     cat2id = pickle.load(f)
+    # model = StackedGCNAmazon(user_size=len(dataset.user2id), category_size=len(cat2id))
+    # model = model.cuda()
+    # model.train()
 
-    print(len(dataset))
+    # print(len(dataset))
 
-    optimizer = torch.optim.Adam(
-        model.parameters(), lr=0.0005, weight_decay=5e-4)
-    pos_weight = torch.ones([1])*30
-    pos_weight = pos_weight.cuda()
-    criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-    loader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=4)
+    # optimizer = torch.optim.Adam(
+    #     model.parameters(), lr=0.0005, weight_decay=5e-4)
+    # pos_weight = torch.ones([1])*30
+    # pos_weight = pos_weight.cuda()
+    # criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    # loader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=4)
 
-    for epoch in range(200):
-        print(epoch)
-        predictions = []
-        targets = []
-        with tqdm(total=len(loader)) as pbar:
-            for data in loader:
-                optimizer.zero_grad()
-                # data = data.cuda()
-                x, edge_index = data.x, data.edge_index
-                x = x.cuda()
-                edge_index = edge_index.cuda()
-                pred_mask = data.label_mask.cuda()
-                label = data.y.unsqueeze(-1).cuda().float()
-                output = model(edge_index, x)
+    # for epoch in range(200):
+    #     print(epoch)
+    #     predictions = []
+    #     targets = []
+    #     with tqdm(total=len(loader)) as pbar:
+    #         for data in loader:
+    #             optimizer.zero_grad()
+    #             # data = data.cuda()
+    #             x, edge_index = data.x, data.edge_index
+    #             x = x.cuda()
+    #             edge_index = edge_index.cuda()
+    #             pred_mask = data.label_mask.cuda()
+    #             label = data.y.unsqueeze(-1).cuda().float()
+    #             output = model(edge_index, x)
 
-                loss = criterion(output[pred_mask], label[pred_mask])
-                loss.backward()
-                optimizer.step()
+    #             loss = criterion(output[pred_mask], label[pred_mask])
+    #             loss.backward()
+    #             optimizer.step()
 
-                targets.append(data.y.cpu().detach().numpy())
-                predictions.append(output[pred_mask].cpu().detach().numpy())
-                # break
-                pbar.update(1)
-                pbar.set_description("loss {:.4f}".format(loss.item()))
+    #             targets.append(data.y.cpu().detach().numpy())
+    #             predictions.append(output[pred_mask].cpu().detach().numpy())
+    #             # break
+    #             pbar.update(1)
+    #             pbar.set_description("loss {:.4f}".format(loss.item()))
 
-        targets = np.concatenate(targets)
-        predictions = np.concatenate(predictions) > 0.5
-        print(np.sum(predictions), np.sum(targets))
-        score = f1_score(targets, predictions, average="micro")
-        baselines = np.zeros(targets.shape)
-        baseline_score = f1_score(targets, baselines, average='micro')
-        print("\nF-1 score: {:.4f}, {:.4f}".format(score, baseline_score))
+    #     targets = np.concatenate(targets)
+    #     predictions = np.concatenate(predictions) > 0.5
+    #     print(np.sum(predictions), np.sum(targets))
+    #     score = f1_score(targets, predictions, average="micro")
+    #     baselines = np.zeros(targets.shape)
+    #     baseline_score = f1_score(targets, baselines, average='micro')
+    #     print("\nF-1 score: {:.4f}, {:.4f}".format(score, baseline_score))
