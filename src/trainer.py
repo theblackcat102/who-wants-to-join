@@ -43,7 +43,8 @@ def confusion(prediction, truth):
 class GroupGCN():
     def __init__(self, args):
         dataset = SNAPCommunity(args.dataset, cutoff=args.maxhop,
-            max_size=args.max_size, min_size=args.min_size, ratio=args.ratio)
+                                max_size=args.max_size, min_size=args.min_size,
+                                ratio=args.ratio)
 
         # make sure each runs share the same results
         shuffle_idx_path = osp.join(dataset.processed_dir,

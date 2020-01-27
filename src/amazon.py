@@ -451,10 +451,10 @@ class AmazonCommunity(Dataset):
                 'max_size': 1000, 'pre_filter': self.pre_filter,
                 'pre_transform': self.pre_transform}
             res = pool.apply_async(create_sub_graph, args=args, kwds=kwds)
-            results.append(res)
+            # results.append(res)
             idx += len(sub_group2member)
-        for res in results:
-            res.get()
+        # for res in results:
+        #     res.get()
         pool.close()
         pool.join()
         pbar_queue.put(None)
