@@ -105,18 +105,19 @@ class GroupGCN():
             for val_data in tqdm(dataloader, dynamic_ncols=True):
                 x, edge_index = val_data.x, val_data.edge_index
                 y = val_data.y
-                pred_mask = val_data.label_mask.cuda()
+                pred_mask = val_data.label_mask
                 pred = model(edge_index.cuda(), x.cuda())
-                pred = pred[pred_mask].cpu()
-                y = y[pred_mask]
+                pred = pred.cpu()
+                # y = y[pred_mask]
                 y_pred.zero_()
                 y_target.zero_()
 
                 for idx, batch_idx in enumerate(val_data.batch):
-                    if y[idx] == 1:
-                        y_target[batch_idx.data, x[idx]] = 1
-                    if pred[idx] > 0.5:
-                        y_pred[batch_idx, x[idx]] = 1
+                    if pred_mask[idx] == 1:
+                        if y[idx] == 1:
+                            y_target[batch_idx.data, x[idx][0]] = 1
+                        if pred[idx] > 0.5:
+                            y_pred[batch_idx.data, x[idx][0]] = 1
 
                 TP, FP, TN, FN = confusion(y_pred, y_target)
 
@@ -247,7 +248,7 @@ if __name__ == "__main__":
     parser.add_argument('--maxhop', type=int, default=2)
     # training parameters
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--batch-size', type=int, default=8)
+    parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--lr', type=float, default=0.0005)
     parser.add_argument('--pos-weight', type=float, default=-1)
     parser.add_argument('--eval', type=int, default=10)

@@ -104,6 +104,8 @@ def graph2data(G, name2id, node_attr, cat2id):
                     graph_idx[cat_name] = len(graph_idx)
                     node_latent = Variable(torch.from_numpy(np.array([cat2id[cat], -1, 1])))
                     nodes.append(node_latent)
+                    labels.append(0)
+                    label_mask.append(0)
                 edges.append([[ graph_idx[cat_name], graph_idx[n] ]])
 
     if len(nodes) == 0:
