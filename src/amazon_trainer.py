@@ -1,6 +1,6 @@
 from datetime import datetime
-from src.layers import StackedGCNMeetup
-from src.meetup import Meetup, locations_id, MEETUP_FOLDER
+from src.layers import StackedGCNAmazon
+from src.amazon import AmazonCommunity
 from torch_geometric.data import DataLoader
 import random
 from tqdm import tqdm
@@ -42,29 +42,23 @@ def confusion(prediction, truth):
 
 class GroupGCN():
     def __init__(self, args):
-        dataset = Meetup(city_id=locations_id[args.dataset], cutoff=args.maxhop,
+        dataset_name = 'amazon'
+        dataset = AmazonCommunity(cutoff=args.maxhop,
             min_size=args.min_size, max_size=args.max_size)
 
         # make sure each runs share the same results
-        if osp.exists(args.dataset+'_shuffle_idx.pkl'):
-            with open(args.dataset+'_shuffle_idx.pkl', 'rb') as f:
+        if osp.exists('amazon_hete_shuffle_idx.pkl'):
+            with open('amazon_hete_shuffle_idx.pkl', 'rb') as f:
                 shuffle_idx = pickle.load(f)
         else:
             shuffle_idx = [idx for idx in range(len(dataset))]
             random.shuffle(shuffle_idx)
-            with open(args.dataset+'_shuffle_idx.pkl', 'wb') as f:
+            with open('amazon_hete_shuffle_idx.pkl', 'wb') as f:
                 pickle.dump(shuffle_idx, f)
-
-        with open(os.path.join(MEETUP_FOLDER, 'topic2id.pkl'), 'rb') as f:
-            topic2id = pickle.load(f)
-        with open(os.path.join(MEETUP_FOLDER, 'cat2id.pkl'), 'rb') as f:
+        with open('data/amazon/cat2id.pkl', 'rb') as f:
             cat2id = pickle.load(f)
-        with open(os.path.join(MEETUP_FOLDER, 'group2topic.pkl'), 'rb') as f:
-            group2topic = pickle.load(f)
 
         self.category_size = len(cat2id)
-        self.topic_size = len(topic2id)
-        self.group_size = len(dataset.group2id)
 
         dataset = dataset[shuffle_idx]
 
@@ -88,7 +82,7 @@ class GroupGCN():
 
         self.log_path = osp.join(
             "logs", "gcn",
-            args.dataset+'_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+            'amazon_hete_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
         self.writer = SummaryWriter(log_dir=self.log_path)
         self.save_path = osp.join(self.log_path, "models")
         os.makedirs(self.save_path, exist_ok=True)
@@ -153,23 +147,15 @@ class GroupGCN():
                                  batch_size=args.batch_size,
                                  shuffle=False)
 
-        model = StackedGCNMeetup(len(self.train_dataset.user2id),
+        model = StackedGCNAmazon(len(self.train_dataset.user2id),
                            category_size=self.category_size,
-                           topic_size=self.topic_size,
-                           group_size=self.group_size,
                            input_channels=args.input_dim,
                            layers=args.layers,
                            dropout=args.dropout)
         model = model.cuda()
 
-        position_weight = {
-            'NY': 50,
-            'SF': 50,
-        }
         if args.pos_weight <= 0:
             weight = 50  # default
-            if args.dataset in position_weight:
-                weight = position_weight[args.dataset]
             args.pos_weight = weight
         else:
             weight = args.pos_weight

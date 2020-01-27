@@ -32,7 +32,7 @@ locations_id = {
     'SF': 94101
 }
 
-def build_initial_graph(city_id=10001, min_size=5, max_size=500, cutoff=2, exist_ratio=0.8):
+def build_initial_graph(city_id=10001, min_size=5, max_size=500, cutoff=2, exist_ratio=0.8, min_freq=3):
     df = pd.read_csv(MEETUP_GROUP)
     df = df[ df['city_id'] == city_id]
 
@@ -48,15 +48,31 @@ def build_initial_graph(city_id=10001, min_size=5, max_size=500, cutoff=2, exist
     df = pd.read_csv(MEETUP_MEMBER,encoding='ISO-8859-1')
     df = df[df['group_id'].isin(valid_group_id)]
     print('Build member mapping')
-    group_map_name = '%d_%d_%d_group_mapping.pkl' % (city_id, min_size, max_size)
+    group_map_name = '%d_%d_%d_%d_group_mapping.pkl' % (city_id, min_size, max_size, min_freq)
+    valid_group_members_name = '%d_%d_%d_%d_valid_members.pkl' % (city_id, min_size, max_size, min_freq)
+
     user2id_name = '%d_%d_%d_user2id.pkl' % (city_id, min_size, max_size)
     
     if not os.path.exists(os.path.join(MEETUP_FOLDER, group_map_name)):
         group_mappings = defaultdict(list)
-
+        member_frequecies = defaultdict(int)
         for idx, row in tqdm(df.iterrows()):
             if row['group_id'] in valid_group_id:
                 group_mappings[row['group_id']].append(row['member_id'])
+                member_frequecies[row['member_id']] += 1
+
+        valid_members = []
+        for m, freq in member_frequecies.items():
+            if freq >= min_freq:
+                valid_members.append(m)
+        print("filter member < %d"% min_freq)
+        new_group = defaultdict(list)  
+
+        for group_id, members in group_mappings.items():
+            for m in members:
+                if m in valid_members:
+                    new_group[group_id].append(m)
+        group_mappings = new_group
 
         all_group_id = list(group_mappings.keys())
 
@@ -65,8 +81,11 @@ def build_initial_graph(city_id=10001, min_size=5, max_size=500, cutoff=2, exist
             if members_len < min_size or members_len > max_size:
                 group_mappings.pop(group_id, None)
         print("Init {} Group found".format(len(group_mappings)))
+
         with open(os.path.join(MEETUP_FOLDER, group_map_name), 'wb') as f:
             pickle.dump(group_mappings, f)
+        with open(os.path.join(MEETUP_FOLDER, valid_group_members_name), 'wb') as f:
+            pickle.dump({'valid': valid_members}, f)
     else:
         with open(os.path.join(MEETUP_FOLDER, group_map_name), 'rb') as f:
             group_mappings = pickle.load(f)
@@ -274,31 +293,48 @@ def async_graph_save(group, group_mappings, ratio, cutoff, G,
     del G
 
 
+
+def convertmemberattributes(city_id, min_size, max_size, node_min_freq):
+    df = pd.read_csv(MEETUP_MEMBER, encoding='latin-1')
+    user2id_name = '%d_%d_%d_%d_user2id.pkl' % (city_id, min_size, max_size, node_min_freq)
+    with open(os.path.join(MEETUP_FOLDER, user2id_name), 'rb') as f:
+        user2id = pickle.load(f)
+
+    df['member_id'] = df['member_id'].map(user2id)
+    print(df.columns)
+    df = df.drop(['group_id', 'member_name','bio', 'link','joined', 'country'], axis=1)
+    print(df.head(100))
+
 class Meetup(Dataset):
 
     def __init__(self, cutoff=2, ratio=0.8, min_size=5,
-            max_size=100, city_id=10001):
+            max_size=100, city_id=10001, node_min_freq=3):
         self.cutoff = cutoff
         self.ratio = ratio
         self.min_size = min_size
         self.max_size = max_size
         self.group_size = 5000
         self.city_id = city_id
-        self.cache_file_prefix = '{}_{}_{}_{}_{}'.format('meetups', self.city_id ,self.cutoff, self.ratio, self.min_size)
-        user2id_name = '%d_%d_%d_user2id.pkl' % (self.city_id, self.min_size, self.max_size)
+        self.node_min_freq = node_min_freq
+        self.cache_file_prefix = '{}_{}_{}_{}_{}_{}'.format('meetups', self.city_id ,self.cutoff, self.ratio, self.min_size, self.node_min_freq)
+        user2id_name = '%d_%d_%d_%d_user2id.pkl' % (self.city_id, self.min_size, self.max_size, self.node_min_freq)
         if os.path.exists(os.path.join(MEETUP_FOLDER, user2id_name)):
             with open(os.path.join(MEETUP_FOLDER, user2id_name), 'rb') as f:
                 self.user2id = pickle.load(f)
-        group2id_name = '%d_%d_%d_group2id.pkl' % (self.city_id, self.min_size, self.max_size)
+        group2id_name = '%d_%d_%d_%d_group2id.pkl' % (self.city_id, self.min_size, self.max_size, self.node_min_freq)
+        self.group2id = None
         if os.path.exists(os.path.join(MEETUP_FOLDER, group2id_name)):
             with open(os.path.join(MEETUP_FOLDER, group2id_name), 'rb') as f:
                 self.group2id = pickle.load(f)
-
-        self.processed_file_idx = [idx for idx in range(len(self.group2id))]
+        if self.group2id is None:
+            self.processed_file_idx = []
+        else:
+            self.processed_file_idx = [idx for idx in range(len(self.group2id))]
 
         super(Meetup, self).__init__(osp.join("processed", str(city_id)),
                                             transform=None,
                                             pre_transform=None)
+        self.process()
 
     @property
     def processed_file_names(self):
@@ -334,11 +370,11 @@ class Meetup(Dataset):
             self.processed_file_idx = [idx for idx in range(self.group_size)]
             return
 
-        cache_data_f = '{}_{}_{}_{}.pklz'.format(self.city_id, self.min_size, self.max_size, self.cutoff)
+        cache_data_f = '{}_{}_{}_{}_{}.pklz'.format(self.city_id, self.min_size, self.max_size, self.cutoff, self.node_min_freq)
         if not os.path.exists(os.path.join(MEETUP_FOLDER, cache_data_f)):
             G, first_half_group, second_half_group = build_initial_graph(city_id=self.city_id, 
                 min_size=self.min_size, max_size=self.max_size, 
-                cutoff=self.cutoff, exist_ratio=self.ratio )
+                cutoff=self.cutoff, exist_ratio=self.ratio, min_freq=self.node_min_freq )
             with gzip.open( os.path.join(MEETUP_FOLDER, cache_data_f) , 'wb') as f:
                 pickle.dump({
                     'G': G, 
@@ -351,7 +387,7 @@ class Meetup(Dataset):
             G, first_half_group, second_half_group = cache_data['G'], cache_data['first'], cache_data['second']
             del cache_data
 
-        group2id_name = '%d_%d_%d_group2id.pkl' % (self.city_id, self.min_size, self.max_size)
+        group2id_name = '%d_%d_%d_%d_group2id.pkl' % (self.city_id, self.min_size, self.max_size, self.node_min_freq)
 
         if not os.path.exists(os.path.join(MEETUP_FOLDER, group2id_name)):
             group2id = defaultdict(int)
@@ -367,9 +403,9 @@ class Meetup(Dataset):
         # build social graph of each group
         sub_groups = []
         file_idx = 0
-        group_map_name = '%d_%d_%d_group_mapping.pkl' % (self.city_id, self.min_size, self.max_size)
-        user2id_name = '%d_%d_%d_user2id.pkl' % (self.city_id, self.min_size, self.max_size)
-        group2id_name = '%d_%d_%d_group2id.pkl' % (self.city_id, self.min_size, self.max_size)
+        group_map_name = '%d_%d_%d_%d_group_mapping.pkl' % (self.city_id, self.min_size, self.max_size, self.node_min_freq)
+        user2id_name = '%d_%d_%d_%d_user2id.pkl' % (self.city_id, self.min_size, self.max_size, self.node_min_freq)
+        group2id_name = '%d_%d_%d_%d_group2id.pkl' % (self.city_id, self.min_size, self.max_size, self.node_min_freq)
 
         # print(os.path.join(MEETUP_FOLDER, user2id_name))
         with open(os.path.join(MEETUP_FOLDER, 'cat2id.pkl'), 'rb') as f:
@@ -382,13 +418,28 @@ class Meetup(Dataset):
         with open(os.path.join(MEETUP_FOLDER, 'member2topic.pkl'), 'rb') as f:
             member2topic = pickle.load(f)
 
-
-        user2id = self.user2id
         with open(os.path.join(MEETUP_FOLDER, group_map_name), 'rb') as f:
             group_mappings = pickle.load(f)
+
+        if not os.path.exists(os.path.join(MEETUP_FOLDER, user2id_name)):
+            user2id = defaultdict(int)
+            for _, members in group_mappings.items():
+                for m in members:
+                    if m not in user2id:
+                        user2id[m] = len(user2id)
+            with open(os.path.join(MEETUP_FOLDER, user2id_name), 'wb') as f:
+                pickle.dump(user2id, f)
+            self.user2id = user2id
+        else:
+            with open(os.path.join(MEETUP_FOLDER, user2id_name), 'rb') as f:
+                self.user2id = pickle.load(f)
+            user2id = self.user2id
+
         with open(os.path.join(MEETUP_FOLDER, group2id_name), 'rb') as f:
             group2id = pickle.load(f)
         print('total group ', len(second_half_group))
+        print('total users ', len(user2id))
+
         filename_prefix = self.cache_file_prefix
         processed_dir = self.processed_dir
 
@@ -445,33 +496,77 @@ class Meetup(Dataset):
         return data
 
 if __name__ == "__main__":
+    from src.layers import StackedGCNMeetup
     # save_category_id()
     # save_topic_id()
     # save_member2topic()
     # save_group2topic()
     # build_initial_graph()
-    import argparse
-    parser = argparse.ArgumentParser(
-        description='Deepset Recommendation Model')
-    # dataset parameters
-    parser.add_argument('--dataset', type=str, default='SF',
-                        choices=['NY', 'SF'])
-    args = parser.parse_args()
-    Meetup(city_id=locations_id[args.dataset])
+    convertmemberattributes(94101, 5, 100, 3)
+    # import argparse
+    # parser = argparse.ArgumentParser(
+    #     description='Deepset Recommendation Model')
+    # # dataset parameters
+    # parser.add_argument('--dataset', type=str, default='SF',
+    #                     choices=['NY', 'SF'])
+    # args = parser.parse_args()
+    # dataset = Meetup(city_id=locations_id[args.dataset])
 
-    # with open('cache.pkl', 'rb') as f:
-    #     sub_G = pickle.load(f)
-    # user2id_name = '%d_%d_%d_user2id.pkl' % (locations_id['SF'], 5, 500)
-    # print(os.path.join(MEETUP_FOLDER, user2id_name))
-    # with open(os.path.join(MEETUP_FOLDER, user2id_name), 'rb') as f:
-    #     user2id = pickle.load(f)
+    # with open(os.path.join(MEETUP_FOLDER, 'topic2id.pkl'), 'rb') as f:
+    #     topic2id = pickle.load(f)
     # with open(os.path.join(MEETUP_FOLDER, 'cat2id.pkl'), 'rb') as f:
     #     cat2id = pickle.load(f)
     # with open(os.path.join(MEETUP_FOLDER, 'group2topic.pkl'), 'rb') as f:
     #     group2topic = pickle.load(f)
-    # with open(os.path.join(MEETUP_FOLDER, 'member2topic.pkl'), 'rb') as f:
-    #     member2topic = pickle.load(f)
-    # print('finish loading')
-    # # member2topic, group2topic, category2id
-    # data = graph2data(sub_G, user2id, member2topic, group2topic, cat2id)
-    # print(data)
+
+    # category_size = len(cat2id)
+    # topic_size = len(topic2id)
+    # group_size = len(dataset.group2id)
+    # model = StackedGCNMeetup(len(dataset.user2id),
+    #                        category_size=category_size,
+    #                        topic_size=topic_size,
+    #                        group_size=group_size)
+    # model = model.cuda()
+    # model.train()
+
+    # print(len(dataset))
+
+    # optimizer = torch.optim.Adam(
+    #     model.parameters(), lr=0.0005, weight_decay=5e-4)
+    # pos_weight = torch.ones([1])*100
+    # pos_weight = pos_weight.cuda()
+    # criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+    # loader = DataLoader(dataset, batch_size=8, shuffle=True, num_workers=4)
+
+    # for epoch in range(200):
+    #     print(epoch)
+    #     predictions = []
+    #     targets = []
+    #     with tqdm(total=len(loader)) as pbar:
+    #         for data in loader:
+    #             optimizer.zero_grad()
+    #             # data = data.cuda()
+    #             x, edge_index = data.x, data.edge_index
+    #             x = x.cuda()
+    #             edge_index = edge_index.cuda()
+    #             pred_mask = data.label_mask.cuda()
+    #             label = data.y.unsqueeze(-1).cuda().float()
+    #             output = model(edge_index, x)
+
+    #             loss = criterion(output[pred_mask], label[pred_mask])
+    #             loss.backward()
+    #             optimizer.step()
+
+    #             targets.append(data.y.cpu().detach().numpy())
+    #             predictions.append(output.cpu().detach().numpy())
+    #             # break
+    #             pbar.update(1)
+    #             pbar.set_description("loss {:.4f}".format(loss.item()))
+
+    #     targets = np.concatenate(targets)
+    #     predictions = np.concatenate(predictions) > 0.5
+    #     print(np.sum(predictions), np.sum(targets))
+    #     score = f1_score(targets, predictions, average="micro")
+    #     baselines = np.zeros(targets.shape)
+    #     baseline_score = f1_score(targets, baselines, average='micro')
+    #     print("\nF-1 score: {:.4f}, {:.4f}".format(score, baseline_score))

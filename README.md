@@ -167,6 +167,11 @@ https://www.gharchive.org/
 
 ~~MovieLens:~~
 
+Data expansion using omdb api ( mainly extract more actors and movie plot text)
+
+After expansion 7598/11615 actors only participate in one movie
+
+
 Movie:
     1. language
     2. Director
@@ -176,3 +181,5 @@ Movie:
     4. Budget
 
 
+
+283155,1000
