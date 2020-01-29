@@ -142,7 +142,6 @@ class StackedGCNAmazon(torch.nn.Module):
         member_pred = self.predict_member(features)
         return member_pred, node_pred
 
-
 class StackedGCNDBLP(torch.nn.Module):
     """
     Multi-layer GCN model.
@@ -201,10 +200,11 @@ class StackedGCNDBLP(torch.nn.Module):
         :param features: Feature matrix input FLoatTensor.
         :return predictions: Prediction matrix output FLoatTensor.
         """
+
         author_node_idx = features[:, -1] == 0
         paper_node_idx = features[:, -1] == 1
         conf_node_idx = features[:, -1] == 2
-
+        print('forward')
         authors_idx = features[ author_node_idx, 0 ]
         known_user_idx = features[ author_node_idx, 1 ]
         paper_idx = features[ paper_node_idx, 0]
@@ -224,6 +224,7 @@ class StackedGCNDBLP(torch.nn.Module):
         new_features[ paper_node_idx ] = paper_feature
         new_features[ conf_node_idx ] = conf_feature
         features = new_features
+        print('load feature')
 
         for i, _ in enumerate(self.layers[:-2]):
             features = nn.functional.relu(self.layers[i](features, edges))
@@ -232,6 +233,7 @@ class StackedGCNDBLP(torch.nn.Module):
                     features, p=self.dropout, training=self.training)
         features = self.layers[-1](features, edges)
         # predictions = torch.nn.functional.log_sigmoid(features, dim=1)
+        print('finish')
         return features
 class StackedGCNMeetup(torch.nn.Module):
     """
