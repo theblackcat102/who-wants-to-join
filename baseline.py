@@ -92,8 +92,8 @@ if __name__ == "__main__":
         target_users = input_users_id[ data.y.flatten() == 1  ].flatten().unsqueeze(0)
 
         if len(user_words) == 0:
-            raise ValueError('No valid exist user')
-
+            #raise ValueError('No valid exist user')
+            continue
         if candidate_pool_all:
             ms = model.most_similar(positive=user_words, topn=args.topk)
         else:

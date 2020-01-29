@@ -136,6 +136,97 @@ class StackedGCNAmazon(torch.nn.Module):
         # predictions = torch.nn.functional.log_sigmoid(features, dim=1)
         return features
 
+
+class StackedGCNDBLP(torch.nn.Module):
+    """
+    Multi-layer GCN model.
+    """
+    def __init__(
+            self, author_size, paper_size, conf_size,
+            user_dim=8, paper_dim=4, conf_dim=4,
+            input_channels=8, output_channels=1, layers=[16, 16],
+            dropout=0.1):
+        """
+        :param args: Arguments object.
+        :input_channels: Number of features.
+        :output_channels: Number of target features.
+        """
+        super(StackedGCNDBLP, self).__init__()
+
+        # print(user_size, category_size, topic_size, group_size)
+        # print(user_dim, category_dim, topic_dim, group_dim)
+
+        self.embeddings = nn.Embedding(author_size, user_dim)
+        self.known_embeddings = nn.Embedding(2, user_dim)
+        self.user_proj = nn.Sequential(
+            nn.ReLU(),
+            nn.Linear(user_dim, input_channels)
+        )
+        self.conf_embeddings = nn.Embedding(conf_size, conf_dim)
+        self.conf_proj = nn.Sequential(
+            nn.ReLU(),
+            nn.Linear(conf_dim, input_channels)
+        )
+        self.paper_embeddings = nn.Embedding(paper_size, paper_dim)
+        self.paper_proj = nn.Sequential(
+            nn.ReLU(),
+            nn.Linear(paper_dim, input_channels)
+        )
+
+        self.layers_dim = layers
+        self.dropout = dropout
+        self.input_channels = input_channels
+        self.output_channels = output_channels
+
+        self.layers = []
+        self.layers_dim = ([self.input_channels] +
+                           self.layers_dim +
+                           [self.output_channels])
+        for i, _ in enumerate(self.layers_dim[:-2]):
+            self.layers.append(
+                GCNConv(self.layers_dim[i], self.layers_dim[i+1]))
+        self.layers.append(GCNConv(self.layers_dim[-2], self.layers_dim[-1]))
+        self.layers = nn.ModuleList(self.layers)
+
+    def forward(self, edges, features):
+        """
+        Making a forward pass.
+        :param edges: Edge list LongTensor.
+        :param features: Feature matrix input FLoatTensor.
+        :return predictions: Prediction matrix output FLoatTensor.
+        """
+        author_node_idx = features[:, -1] == 0
+        paper_node_idx = features[:, -1] == 1
+        conf_node_idx = features[:, -1] == 2
+
+        authors_idx = features[ author_node_idx, 0 ]
+        known_user_idx = features[ author_node_idx, 1 ]
+        paper_idx = features[ paper_node_idx, 0]
+        conf_idx = features[ conf_node_idx, 0]
+        # 576192        1956554         6620
+        # 874608        3605603        12770
+        # print(authors_idx.max(), paper_idx.max(), conf_idx.max())
+        user_feature = self.embeddings(authors_idx )
+        known_feat = self.known_embeddings(known_user_idx)
+        author_feature = self.user_proj(user_feature + known_feat)
+
+        paper_feature = self.paper_proj(self.paper_embeddings(paper_idx))
+        conf_feature = self.conf_proj(self.conf_embeddings(conf_idx))
+
+        new_features = torch.zeros((len(features), self.input_channels)).cuda()
+        new_features[ author_node_idx ] = author_feature
+        new_features[ paper_node_idx ] = paper_feature
+        new_features[ conf_node_idx ] = conf_feature
+        features = new_features
+
+        for i, _ in enumerate(self.layers[:-2]):
+            features = nn.functional.relu(self.layers[i](features, edges))
+            if i > 1:
+                features = nn.functional.dropout(
+                    features, p=self.dropout, training=self.training)
+        features = self.layers[-1](features, edges)
+        # predictions = torch.nn.functional.log_sigmoid(features, dim=1)
+        return features
 class StackedGCNMeetup(torch.nn.Module):
     """
     Multi-layer GCN model.
