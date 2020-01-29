@@ -1,5 +1,5 @@
 import torch
-from torch_geometric.nn import GCNConv
+from torch_geometric.nn import GCNConv, SAGEConv,GATConv
 import torch.nn as nn
 
 
@@ -64,7 +64,7 @@ class StackedGCNAmazon(torch.nn.Module):
     def __init__(
             self, user_size, category_size,
             user_dim=8, category_dim=4,
-            input_channels=8, output_channels=1, layers=[16, 16],
+            input_channels=8, output_channels=16, layers=[16, 16],
             dropout=0.1):
         """
         :param args: Arguments object.
@@ -102,6 +102,9 @@ class StackedGCNAmazon(torch.nn.Module):
                 GCNConv(self.layers_dim[i], self.layers_dim[i+1]))
         self.layers.append(GCNConv(self.layers_dim[-2], self.layers_dim[-1]))
         self.layers = nn.ModuleList(self.layers)
+        self.predict_member = nn.Linear(self.output_channels, 1)
+
+        self.predict_node = nn.Linear(self.output_channels, 2)
 
     def forward(self, edges, features):
         """
@@ -132,9 +135,12 @@ class StackedGCNAmazon(torch.nn.Module):
             if i > 1:
                 features = nn.functional.dropout(
                     features, p=self.dropout, training=self.training)
-        features = self.layers[-1](features, edges)
+        features = nn.functional.relu(self.layers[-1](features, edges))
+
         # predictions = torch.nn.functional.log_sigmoid(features, dim=1)
-        return features
+        node_pred = self.predict_node(features)
+        member_pred = self.predict_member(features)
+        return member_pred, node_pred
 
 class StackedGCNMeetup(torch.nn.Module):
     """
