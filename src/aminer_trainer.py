@@ -193,7 +193,7 @@ class GroupGCN():
                     label = data.y.unsqueeze(-1).cuda().float()
                     output = model(edge_index, x)
 
-                    loss = criterion(output[pred_mask], label[pred_mask])
+                    loss = criterion(output, label)
                     loss.backward()
 
                     optimizer.step()
