@@ -87,6 +87,7 @@ def graph2data(G, name2id):
             src, dst = edge_index[idx]
             edge_index[idx] = [graph_idx[src], graph_idx[dst]]
             new_edges.append([graph_idx[dst], graph_idx[src]])
+            new_edges.append([graph_idx[src], graph_idx[dst]])
         edges.append(new_edges)
         nodes.append(node_latent)
         labels.append(G.nodes[n]['predict'])

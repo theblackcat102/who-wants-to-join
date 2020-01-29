@@ -181,5 +181,38 @@ Movie:
     4. Budget
 
 
+gcn/amazon_hete_2020-01-28-11-12-59
 
-283155,1000
+    * All SAGEConv layers
+
+
+gcn/amazon_hete_2020-01-28-11-16-52
+
+    * GAT layers with last is GCN
+
+
+gcn/amazon_hete_2020-01-28-12-14-34
+
+    * with node classification
+
+gcn/amazon_hete_2020-01-28-12-20-42
+gcn/amazon_hete_2020-01-28-12-35-02
+
+    * remove member prediction only on target node
+
+
+https://www.kernix.com/article/community-detection-in-social-networks/
+
+```
+def calculFScore(i,j):
+    i=[int(x) for x in i]
+    j=[int(x) for x in j]
+    inter=set(i).intersection(set(j))
+    precision=len(inter)/float(len(j))
+    recall=len(inter)/float(len(i))
+    if recall==0 and precision==0:
+        fscore=0
+    else:
+        fscore=2*(precision*recall)/(precision+recall)
+    return fscore
+```
