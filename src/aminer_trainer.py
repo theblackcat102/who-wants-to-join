@@ -56,7 +56,6 @@ class GroupGCN():
             with open('dblp_hete_shuffle_idx.pkl', 'wb') as f:
                 pickle.dump(shuffle_idx, f)
 
-
         dataset = dataset[shuffle_idx]
 
         split_pos = int(len(dataset)*0.7)
@@ -94,7 +93,7 @@ class GroupGCN():
         recalls = []
         precisions = []
         B = args.batch_size
-        user_size = len(self.train_dataset.user2id)
+        user_size = 874608
         print('Validation')
         with torch.no_grad():
             y_pred = torch.FloatTensor(B, user_size)

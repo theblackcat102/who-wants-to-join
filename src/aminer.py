@@ -381,31 +381,34 @@ class Aminer(Dataset):
         H = G.copy()
         for idx, p in tqdm(enumerate(second_half_papers), 
             dynamic_ncols=True, total=len(second_half_papers)):
-            paper = deepcopy(p)
-            paper['title'] = paper2id[paper['title']]
-            paper['authors'] = [ author2id[a] for a in paper['authors']]
-            sub_G, hit, pred_cnt = create_subgraph(paper, H, cutoff=2)
+            papers = deepcopy(p)
+            papers['title'] = paper2id[papers['title']]
+            papers['authors'] = [ author2id[a] for a in papers['authors']]
+            sub_G, hit, pred_cnt = create_subgraph(papers, H, cutoff=2)
             if sub_G is None:
                 continue
 
+            if idx < 1000:
+                print(len(sub_G.nodes) , hit, pred_cnt)
             data = graph2data(sub_G)
 
             filename = self.cache_file_prefix+'_{}_v2.pt'.format(idx)
             torch.save(data, osp.join(self.processed_dir, filename))
 
+            paper = deepcopy(p)
             p_id = 'p'+str(paper2id[paper['title']])
             c_id = 'c'+str(conf2id[paper['conf']])
             for a in paper['authors']:
                 a_id = 'a'+str(author2id[a])
                 if not H.has_node(p_id):
                     H.add_node(p_id)
-                if citation_graph.has_node(p['index']):
-                    for n in citation_graph.neighbors(p['index']):
+                if citation_graph.has_node(paper['index']):
+                    for n in citation_graph.neighbors(paper['index']):
                         neighbour_title = index2title[n]
                         id_ = paper2id[neighbour_title]
                         n_p_id = 'p'+str(id_)
                         if not H.has_node(n_p_id):
-                            H.add_node(n_p_id)       
+                            H.add_node(n_p_id)
                         H.add_edge(p_id, n_p_id)
                 if not H.has_node(a_id):
                     H.add_node(a_id)
