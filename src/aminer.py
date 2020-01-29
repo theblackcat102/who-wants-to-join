@@ -275,6 +275,9 @@ class Aminer(Dataset):
         #     cache_data = pickle.load(f)
         self.cache_file_prefix = '{}_{}_{}_{}'.format(
             'dblp', self.cutoff, self.ratio, self.min_size)
+        self.processed_dir = osp.join(osp.join("processed", 'dblp_hete'), 'processed')
+        match_filename = self.cache_file_prefix+'_*_v2.pt'
+        self.list_of_data = list(glob.glob(osp.join(self.processed_dir, match_filename)))
 
         os.makedirs(osp.join(osp.join("processed", 'dblp_hete'), 'processed'), exist_ok=True)
         super(Aminer, self).__init__(osp.join("processed", 'dblp_hete'),
@@ -305,8 +308,7 @@ class Aminer(Dataset):
 
     @property
     def processed_file_names(self):
-        match_filename = self.cache_file_prefix+'_*_v2.pt'
-        return list(glob.glob(osp.join(self.processed_dir, match_filename)))
+        return self.list_of_data
 
     def _download(self):
         pass
@@ -327,6 +329,7 @@ class Aminer(Dataset):
             self.processed_file_idx = list(glob.glob(osp.join(self.processed_dir, match_filename)))
             return
         self.init_preprocessing()
+        self.list_of_data = list(glob.glob(osp.join(self.processed_dir, match_filename)))
 
     def __len__(self):
         return len(self.processed_file_names)
@@ -416,6 +419,7 @@ class Aminer(Dataset):
             if not H.has_node(c_id):
                 H.add_node(c_id)
             H.add_edge(c_id, p_id)
+        self.list_of_data = list(glob.glob(osp.join(self.processed_dir, match_filename)))
 
     def get(self, idx):
         if isinstance(idx, list):
