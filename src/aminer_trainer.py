@@ -136,16 +136,13 @@ class GroupGCN():
 
         train_loader = DataLoader(self.train_dataset,
                                   batch_size=args.batch_size,
-                                  num_workers=8,
                                   shuffle=True)
         valid_loader = DataLoader(self.valid_dataset,
                                   batch_size=args.batch_size,
-                                  num_workers=8,
                                   shuffle=False)
 
         test_loader = DataLoader(self.test_dataset,
                                  batch_size=args.batch_size,
-                                 num_workers=8,
                                  shuffle=False)
         # with open('aminer/preprocess_dblp.pkl', 'rb') as f:
         #     dblp = pickle.load(f)
