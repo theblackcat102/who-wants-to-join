@@ -107,7 +107,7 @@ class GroupGCN():
                 y = val_data.y
                 pred_mask = val_data.label_mask
                 pred, _ = model(edge_index.cuda(), x.cuda())
-                pred = pred.cpu()
+                pred = torch.sigmoid(pred).cpu()
                 # y = y[pred_mask]
                 y_pred.zero_()
                 y_target.zero_()

@@ -114,16 +114,17 @@ class GroupGCN():
                 y = val_data.y
                 pred_mask = val_data.label_mask.cuda()
                 pred = model(edge_index.cuda(), x.cuda())
-                pred = pred[pred_mask].cpu()
-                y = y[pred_mask]
+                pred = torch.sigmoid(pred).cpu()
+                # y = y[pred_mask]
                 y_pred.zero_()
                 y_target.zero_()
 
                 for idx, batch_idx in enumerate(val_data.batch):
-                    if y[idx] == 1:
-                        y_target[batch_idx.data, x[idx]] = 1
-                    if pred[idx] > 0.5:
-                        y_pred[batch_idx, x[idx]] = 1
+                    if pred_mask[idx] == 1:
+                        if y[idx] == 1:
+                            y_target[batch_idx.data, x[idx][0]] = 1
+                        if pred[idx] > 0.5:
+                            y_pred[batch_idx.data, x[idx][0]] = 1
 
                 TP, FP, TN, FN = confusion(y_pred, y_target)
 

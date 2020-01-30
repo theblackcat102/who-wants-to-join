@@ -45,10 +45,12 @@ class GroupGCN():
         dataset = SNAPCommunity(args.dataset, cutoff=args.maxhop,
                                 max_size=args.max_size, min_size=args.min_size,
                                 ratio=args.ratio)
-
+        base_prefix = ''
+        if args.baseline:
+            base_prefix = 'baseline'
         # make sure each runs share the same results
         shuffle_idx_path = osp.join(dataset.processed_dir,
-                                    args.dataset+'_shuffle_idx.pkl')
+                                    args.dataset+base_prefix+'_shuffle_idx.pkl')
         if osp.exists(shuffle_idx_path):
             with open(shuffle_idx_path, 'rb') as f:
                 shuffle_idx = pickle.load(f)
@@ -101,7 +103,7 @@ class GroupGCN():
                 y = val_data.y
                 batch_size = val_data.num_graphs
                 pred = model(edge_index.cuda(), x.cuda())
-                pred = pred.cpu()
+                pred = torch.sigmoid(pred).cpu()
                 y_pred = torch.zeros(batch_size, user_size)
                 y_target = torch.zeros(batch_size, user_size)
 

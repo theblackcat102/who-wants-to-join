@@ -42,9 +42,9 @@ def confusion(prediction, truth):
 
 class GroupGCN():
     def __init__(self, args):
-        dataset_name = 'amazon'
         dataset = Aminer(cutoff=args.maxhop,
-            min_size=args.min_size, max_size=args.max_size)
+            min_size=args.min_size, max_size=args.max_size,
+            baseline=args.baseline)
 
         # make sure each runs share the same results
         if osp.exists('dblp_hete_shuffle_idx.pkl'):
@@ -68,11 +68,6 @@ class GroupGCN():
         self.train_dataset = dataset[train_idx]
         self.test_dataset = dataset[test_idx]
         self.valid_dataset = dataset[valid_idx]
-
-        # print(len(set(
-        #     self.valid_dataset.processed_file_idx +
-        #     self.train_dataset.processed_file_idx)))
-        # print(len(self.valid_dataset)+ len(self.train_dataset))
 
         self.args = args
 
@@ -103,7 +98,7 @@ class GroupGCN():
                 y = val_data.y
                 pred_mask = val_data.label_mask
                 pred = model(edge_index.cuda(), x.cuda())
-                pred = pred.cpu()
+                pred = torch.sigmoid(pred).cpu()
                 # y = y[pred_mask]
                 y_pred.zero_()
                 y_target.zero_()
@@ -241,6 +236,15 @@ class GroupGCN():
         self.writer.add_scalar("Test/Precisions", precisions, n_iter)
         self.writer.flush()
 
+def str2bool(v):
+    if isinstance(v, bool):
+       return v
+    if v.lower() in ('yes', 'true', 't', 'y', '1'):
+        return True
+    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
+        return False
+    else:
+        raise argparse.ArgumentTypeError('Boolean value expected.')
 
 if __name__ == "__main__":
     import argparse
@@ -252,7 +256,9 @@ if __name__ == "__main__":
     parser.add_argument('--pred-ratio', type=float, default=0.8)
     parser.add_argument('--maxhop', type=int, default=2)
     # training parameters
-    parser.add_argument('--epochs', type=int, default=200)
+    parser.add_argument('--epochs', type=int, default=50)
+    parser.add_argument('--baseline', type=str2bool,nargs='?', default=False,
+        help='baseline model only takes in previous co-author relationship (no conference, no paper id)')
     parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--pos-weight', type=float, default=-1)

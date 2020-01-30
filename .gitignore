@@ -4,6 +4,8 @@ __pycache__/
 *$py.class
 *.rar
 *.zip
+*.sh
+*.pkl
 # C extensions
 env/
 *.so

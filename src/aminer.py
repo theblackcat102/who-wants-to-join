@@ -96,31 +96,97 @@ def init_dblp():
         }, f)
 
 
-def init_graph(papers, paper2id, conf2id, author2id):
-    with open('aminer/preprocess_dblp.pkl', 'rb') as f:
-        dblp = pickle.load(f)
-
+def init_graph(papers, paper2id, conf2id, author2id, citation_graph):
     G = nx.Graph()
+    for paper in tqdm(papers):
+        p = deepcopy(paper)
 
-    for p in papers[:len(papers)//2]:
         p_id = 'p'+str(paper2id[p['title']])
-        c_id = 'c'+str(conf2id[p['conf']])
-
         if not G.has_node(p_id):
             G.add_node(p_id)
+        if citation_graph.has_node(p['index']):
+            for n in citation_graph.neighbors(p['index']):
+                neighbour_title = index2title[n]
+                id_ = paper2id[neighbour_title]
+                n_p_id = 'p'+str(id_)                
+                if not G.has_node(n_p_id):
+                    G.add_node(n_p_id)
+                G.add_edge(p_id, n_p_id)
+
 
         for a in p['authors']:
             a_id = 'a'+str(author2id[a])
 
             if not G.has_node(a_id):
                 G.add_node(a_id)
-            G.add_edge(p_id, a_id)    
+            G.add_edge(p_id, a_id)
 
-        if not G.has_node(c_id):
-            G.add_node(c_id)
-        G.add_edge(c_id, p_id)
+
+        if 'conf' in p:
+            c_id = 'c'+str(conf2id[p['conf']])
+
+            if not G.has_node(c_id):
+                G.add_node(c_id)
+
+            G.add_edge(c_id, p_id)
+    return G
+
+def init_graph_baseline(papers, author2id):
+    G = nx.Graph()
+    for p in tqdm(papers):
+        for a in p['authors']:
+            a_id = 'a'+str(author2id[a])
+            if not G.has_node(a_id):
+                G.add_node(a_id)
+
+            for c in p['authors'][1:]:
+
+                c_id = 'a'+str(author2id[c])
+                if not G.has_node(c_id):
+                    G.add_node(c_id)
+                if c_id != a_id:
+                    G.add_edge(c_id, a_id)    
 
     return G
+
+def append_paper_graph(H, paper, paper2id, conf2id, author2id, citation_graph):
+    # paper = deepcopy(p)
+    p_id = 'p'+str(paper2id[paper['title']])
+    c_id = 'c'+str(conf2id[paper['conf']])
+    if not H.has_node(p_id):
+        H.add_node(p_id)
+    if not H.has_node(c_id):
+        H.add_node(c_id)
+    H.add_edge(c_id, p_id)
+
+    for a in paper['authors']:
+        a_id = 'a'+str(author2id[a])
+        if not H.has_node(a_id):
+            H.add_node(a_id)
+            H.add_edge(p_id, a_id)
+
+        if citation_graph.has_node(paper['index']):
+            for n in citation_graph.neighbors(paper['index']):
+                neighbour_title = index2title[n]
+                id_ = paper2id[neighbour_title]
+                n_p_id = 'p'+str(id_)
+                if not H.has_node(n_p_id):
+                    H.add_node(n_p_id)
+                H.add_edge(p_id, n_p_id)
+
+    return H
+
+def append_paper_graph_baseline(H, paper, author2id):
+    for a in paper['authors']:
+        a_id = 'a'+str(author2id[a])
+        for c in paper['authors'][1:]:
+            c_id = 'a'+str(author2id[c])
+            if not H.has_node(c_id):
+                H.add_node(c_id)
+            if c_id != a_id:
+                H.add_edge(c_id, a_id)
+    return H
+
 
 def get_neighbour_nodes(G, node_id, cutoff=2, level=0):
     '''
@@ -259,52 +325,45 @@ def graph2data(G):
     return data
 
 
+def async_postprocessing(paper, H, idx, processed_dir, cache_file_prefix, cutoff=2):
+    sub_G, hit, pred_cnt = create_subgraph(paper, H, cutoff=2)
+    if sub_G is None:
+        return None
+    if idx < 100: # debug purpose make sure sub_G nodes number differ each iteration
+        print(len(sub_G.nodes) , hit, pred_cnt)
+    data = graph2data(sub_G)
+    filename = cache_file_prefix+'_{}_v2.pt'.format(idx)
+    torch.save(data, osp.join(processed_dir, filename))
+    return None
+
 
 class Aminer(Dataset):
 
     def __init__(self, cutoff=2, ratio=0.8, min_size=5, max_size=100,
-                 city_id=10001):
+                 city_id=10001, baseline=False):
         self.cutoff = cutoff
         self.ratio = ratio
         self.min_size = min_size
         self.max_size = max_size
+        self.baseline = baseline
         if not os.path.exists('aminer/preprocess_dblp.pkl'):
             init_dblp()
-        
+        self.data_folder = 'dblp_hete'
+        if baseline:
+            self.data_folder = 'dblp_hete_baseline'
         # with open('aminer/preprocess_dblp.pkl', 'rb') as f:
         #     cache_data = pickle.load(f)
         self.cache_file_prefix = '{}_{}_{}_{}'.format(
             'dblp', self.cutoff, self.ratio, self.min_size)
-        self.processed_dir = osp.join(osp.join("processed", 'dblp_hete'), 'processed')
+        self.processed_dir = osp.join(osp.join("processed", self.data_folder), 'processed')
         match_filename = self.cache_file_prefix+'_*_v2.pt'
         self.list_of_data = list(glob.glob(osp.join(self.processed_dir, match_filename)))
 
-        os.makedirs(osp.join(osp.join("processed", 'dblp_hete'), 'processed'), exist_ok=True)
-        super(Aminer, self).__init__(osp.join("processed", 'dblp_hete'),
+        os.makedirs(osp.join(osp.join("processed", self.data_folder), 'processed'), exist_ok=True)
+        super(Aminer, self).__init__(osp.join("processed", self.data_folder),
                                      transform=None,
                                      pre_transform=None)
         self.process()
-
-    def init_graph():
-        G = nx.Graph()
-        with open('aminer/preprocess_dblp.pkl', 'rb') as f:
-            cache_data = pickle.load(f)
-        papers = cache_data['papers']
-        for p in papers[:len(papers)//2]:
-            p_id = 'p'+str(paper2id[p['title']])
-            c_id = 'c'+str(conf2id[p['conf']])
-
-            for a in p['authors']:
-                a_id = 'a'+str(author2id[a])
-                if not G.has_node(p_id):
-                    G.add_node(p_id)
-                if not G.has_node(a_id):
-                    G.add_node(a_id)
-                G.add_edge(p_id, a_id)    
-            if not G.has_node(c_id):
-                G.add_node(c_id)
-            G.add_edge(c_id, p_id)
-        return G
 
     @property
     def processed_file_names(self):
@@ -345,80 +404,43 @@ class Aminer(Dataset):
         paper2authors = dblp['paper2authors']
         index2title = dblp['index2title']
         citation_graph = dblp['citation_graph']
+        first_half_papers = papers[len(papers)//2:]
+        second_half_papers = papers[:len(papers)//2]
 
-        G = nx.Graph()
-        second_half_papers = papers[len(papers)//2:]
-        for paper in tqdm(papers[:len(papers)//2]):
-
-            p = deepcopy(paper)
-
-            p_id = 'p'+str(paper2id[p['title']])
-            if not G.has_node(p_id):
-                G.add_node(p_id)
-            if citation_graph.has_node(p['index']):
-                for n in citation_graph.neighbors(p['index']):
-                    neighbour_title = index2title[n]
-                    id_ = paper2id[neighbour_title]
-                    n_p_id = 'p'+str(id_)                
-                    if not G.has_node(n_p_id):
-                        G.add_node(n_p_id)
-                    G.add_edge(p_id, n_p_id)
-
-
-            for a in p['authors']:
-                a_id = 'a'+str(author2id[a])
-
-                if not G.has_node(a_id):
-                    G.add_node(a_id)
-                G.add_edge(p_id, a_id)
-
-
-            if 'conf' in p:
-                c_id = 'c'+str(conf2id[p['conf']])
-
-                if not G.has_node(c_id):
-                    G.add_node(c_id)
-
-                G.add_edge(c_id, p_id)
+        if self.baseline:
+            G = init_graph_baseline(first_half_papers, author2id)
+        else:
+            G = init_graph(first_half_papers, paper2id, conf2id, author2id, citation_graph)
 
         H = G.copy()
+        pool = mp.Pool(processes=8)
+        results = []
+
         for idx, p in tqdm(enumerate(second_half_papers), 
             dynamic_ncols=True, total=len(second_half_papers)):
-            papers = deepcopy(p)
-            papers['title'] = paper2id[papers['title']]
-            papers['authors'] = [ author2id[a] for a in papers['authors']]
-            sub_G, hit, pred_cnt = create_subgraph(papers, H, cutoff=2)
-            if sub_G is None:
-                continue
-
-            if idx < 1000:
-                print(len(sub_G.nodes) , hit, pred_cnt)
-            data = graph2data(sub_G)
-
-            filename = self.cache_file_prefix+'_{}_v2.pt'.format(idx)
-            torch.save(data, osp.join(self.processed_dir, filename))
-
             paper = deepcopy(p)
-            p_id = 'p'+str(paper2id[paper['title']])
-            c_id = 'c'+str(conf2id[paper['conf']])
-            for a in paper['authors']:
-                a_id = 'a'+str(author2id[a])
-                if not H.has_node(p_id):
-                    H.add_node(p_id)
-                if citation_graph.has_node(paper['index']):
-                    for n in citation_graph.neighbors(paper['index']):
-                        neighbour_title = index2title[n]
-                        id_ = paper2id[neighbour_title]
-                        n_p_id = 'p'+str(id_)
-                        if not H.has_node(n_p_id):
-                            H.add_node(n_p_id)
-                        H.add_edge(p_id, n_p_id)
-                if not H.has_node(a_id):
-                    H.add_node(a_id)
-                H.add_edge(p_id, a_id)
-            if not H.has_node(c_id):
-                H.add_node(c_id)
-            H.add_edge(c_id, p_id)
+            paper['title'] = paper2id[paper['title']]
+            paper['authors'] = [ author2id[a] for a in paper['authors']]
+            if 'conf' in paper:
+                paper['conf'] = conf2id[paper['conf']]
+
+            args = [paper, H.copy(), idx, self.processed_dir, self.cache_file_prefix]
+            kwds = {
+                'cutoff': self.cutoff,
+            }
+            res = pool.apply_async(async_postprocessing, args=args, kwds=kwds)
+            results.append(res)
+
+            if self.baseline:
+                H = append_paper_graph_baseline(H, deepcopy(p), author2id)
+            else:
+                H = append_paper_graph(H, deepcopy(p), paper2id, conf2id, author2id, citation_graph)
+
+            if idx % 200 == 0 and idx != 0:
+                sleep(10)
+
+        for res in results:
+            res.get()
         self.list_of_data = list(glob.glob(osp.join(self.processed_dir, match_filename)))
 
     def get(self, idx):
