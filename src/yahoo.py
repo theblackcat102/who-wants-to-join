@@ -207,34 +207,35 @@ class Yahoo(Dataset):
         G, group_mappings = init_graph_with_group()
 
         in_group_cnt = 0
-        with tqdm(total=len(group_mappings), dynamic_ncols=True) as pbar:
-            preprocess_groups(G, group_mappings, pbar, 
-             self.max_size, self.min_size, self.ratio, self.cutoff,
-             self.cache_file_prefix, self.processed_dir)
+        # with tqdm(total=len(group_mappings), dynamic_ncols=True) as pbar:
+        #     preprocess_groups(G, group_mappings, pbar, 
+        #      self.max_size, self.min_size, self.ratio, self.cutoff,
+        #      self.cache_file_prefix, self.processed_dir)
 
-        # manager = mp.Manager()
-        # pbar_queue = manager.Queue()
-        # pbar_proc = mp.Process(target=pbar_listener,
-        #                        args=[pbar_queue, len(group_mappings), ])
-        # pbar_proc.start()
-        # results = []
-        # idx = 0
-        # # chunkize to cpu_count()*5 for better load balance
-        # chunk_size = len(group_mappings)//2
-        # pool = mp.Pool(processes=mp.cpu_count())
-        # for sub_group2member in chunks(group_mappings, chunk_size):
-        #     args = [G, sub_group2member, pbar_queue, 
-        #         self.max_size, self.min_size, self.ratio, self.cutoff]
-        #     res = pool.apply_async(preprocess_groups, args=args)
-        #     results.append(res)
+        manager = mp.Manager()
+        pbar_queue = manager.Queue()
+        pbar_proc = mp.Process(target=pbar_listener,
+                               args=[pbar_queue, len(group_mappings), ])
+        pbar_proc.start()
+        results = []
+        idx = 0
+        # chunkize to cpu_count()*5 for better load balance
+        chunk_size = len(group_mappings)//2
+        pool = mp.Pool(processes=3)
+        for sub_group2member in chunks(group_mappings, chunk_size):
+            args = [G, sub_group2member, pbar_queue, 
+                self.max_size, self.min_size, self.ratio, self.cutoff,
+                 self.cache_file_prefix, self.processed_dir]
+            res = pool.apply_async(preprocess_groups, args=args)
+            results.append(res)
 
-        #     idx += len(sub_group2member)
-        # for res in results:
-        #     in_group_cnt += res.get()
-        # pool.close()
-        # pool.join()
-        # pbar_queue.put(None)
-        # pbar_proc.join()
+            idx += len(sub_group2member)
+        for res in results:
+            in_group_cnt += res.get()
+        pool.close()
+        pool.join()
+        pbar_queue.put(None)
+        pbar_proc.join()
         print('Total {}/{}'.format(idx, len(group_mappings)))
 
 
@@ -372,7 +373,7 @@ class GroupGCN():
         model = model.cuda()
 
         if args.pos_weight <= 0:
-            weight = 50  # default
+            weight = 100  # default
             args.pos_weight = weight
         else:
             weight = args.pos_weight
@@ -399,7 +400,7 @@ class GroupGCN():
                     label = data.y.unsqueeze(-1).cuda().float()
                     output = model(edge_index, x)
                     # entropy_loss = crossentropy(node_pred, x[:, 2])
-                    binary_loss = criterion(output, label)
+                    binary_loss = criterion(output[ pred_mask == 1 ], label[ pred_mask == 1 ])
                     loss = binary_loss#+entropy_loss
                     loss.backward()
 
