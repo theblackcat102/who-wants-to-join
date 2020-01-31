@@ -9,6 +9,12 @@ __pycache__/
 # C extensions
 env/
 *.so
+random-modular-network-generator/
+trash/
+meetup/
+data/
+movielens/
+ml-latest-small/
 lightning_logs/
 Meetup_data/
 meetup_v1

@@ -1,4 +1,5 @@
 import os.path as osp
+import os, glob
 from copy import deepcopy
 import pickle
 from collections import defaultdict
@@ -323,26 +324,19 @@ class Meetup(Dataset):
         if osp.exists(osp.join(MEETUP_FOLDER, user2id_name)):
             with open(osp.join(MEETUP_FOLDER, user2id_name), 'rb') as f:
                 self.user2id = pickle.load(f)
-        group2id_name = '%d_%d_%d_group2id.pkl' % (
-            self.city_id, self.min_size, self.max_size)
-        if osp.exists(osp.join(MEETUP_FOLDER, group2id_name)):
-            with open(osp.join(MEETUP_FOLDER, group2id_name), 'rb') as f:
-                self.group2id = pickle.load(f)
-        if self.group2id is None:
-            self.processed_file_idx = []
-        else:
-            self.processed_file_idx = [idx for idx in range(len(self.group2id))]
+        match_filename = self.cache_file_prefix + '_*_v2.pt'
+        self.processed_dir = osp.join(osp.join("processed", str(self.city_id)), 'processed')
+        self.processed_file_idx = list(glob.glob(osp.join(self.processed_dir, match_filename)))
 
-        super(Meetup, self).__init__(osp.join("processed", str(city_id)),
+        super(Meetup, self).__init__(osp.join("processed", str(city_id)),  
                                      transform=None,
                                      pre_transform=None)
+        if len(self.processed_file_idx) == 0:
+            self.process()
 
     @property
     def processed_file_names(self):
-        return [
-            self.cache_file_prefix+'{}_v2.pt'.format(idx)
-            for idx in self.processed_file_idx
-        ]
+        return self.processed_file_idx
 
     def _download(self):
         pass
@@ -479,16 +473,21 @@ class Meetup(Dataset):
         pool.close()
         pool.join()
 
+        match_filename = self.cache_file_prefix + +'_*_v2.pt'
+        self.processed_dir = osp.join(osp.join("processed", str(self.city_id)), 'processed')
+        self.processed_file_idx = list(glob.glob(osp.join(self.processed_dir, match_filename)))
+
+
     def __len__(self):
-        return len(self.processed_file_names)
+        return len(self.processed_file_idx)
 
     def get(self, idx):
         if isinstance(idx, list):
-            self.processed_file_idx = idx
+            np.array(self.processed_file_idx)[idx]
             return deepcopy(self)
 
-        filename = self.cache_file_prefix+'_{}_v2.pt'.format(idx)
-        data = torch.load(osp.join(self.processed_dir, filename))
+        filename = self.processed_file_idx[idx]
+        data = torch.load(filename)
         return data
 
 
@@ -506,7 +505,10 @@ if __name__ == "__main__":
     parser.add_argument('--dataset', type=str, default='SF',
                         choices=['NY', 'SF'])
     args = parser.parse_args()
-    Meetup(city_id=locations_id[args.dataset])
+    dataset = Meetup(city_id=locations_id[args.dataset])
+    print(len(dataset))
+    subset = dataset[[1,2,3,4]]
+    print(dataset[5])
 
     # with open('cache.pkl', 'rb') as f:
     #     sub_G = pickle.load(f)

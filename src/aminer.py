@@ -140,12 +140,12 @@ def init_graph_baseline(papers, author2id):
                 G.add_node(a_id)
 
             for c in p['authors'][1:]:
-
                 c_id = 'a'+str(author2id[c])
                 if not G.has_node(c_id):
                     G.add_node(c_id)
+
                 if c_id != a_id:
-                    G.add_edge(c_id, a_id)    
+                    G.add_edge(c_id, a_id)
 
     return G
 
@@ -226,12 +226,13 @@ def create_subgraph(paper, G, exist_ratio=0.8, cutoff=3):
     exist_nodes = []
 
     for a in authors:
-        if G.has_node(a) and len(predict_nodes) < predict_ratio:
-            predict_nodes.append(a)
-        else:
-            exist_nodes.append(a)
+        if G.has_node(a):
+            if len(predict_nodes) < predict_ratio:
+                predict_nodes.append(a)
+            else:
+                exist_nodes.append(a)
 
-    if len(predict_nodes) == 0:
+    if len(predict_nodes) == 0 or len(exist_nodes) == 0:
         return None, 0, predict_ratio
 
     # print(predict_nodes)
@@ -268,7 +269,7 @@ def create_subgraph(paper, G, exist_ratio=0.8, cutoff=3):
                 sub_G.add_edge(node, n)
     return sub_G, hit, predict_ratio
 
-def graph2data(G):
+def graph2data(G, titleid):
     '''
         [node_id, known/to predict : 0/1,
          node_type : [member: 0, topic: 1, category : 2, event: 3, group: 4]]
@@ -320,7 +321,8 @@ def graph2data(G):
     loss_mask = torch.from_numpy(np.array(loss_mask))
     edges = torch.from_numpy(np.transpose(np.concatenate(edges))).contiguous()
 
-    data = Data(x=x, edge_index=edges, y=y, label_mask=loss_mask)
+    data = Data(x=x, edge_index=edges, y=y, label_mask=loss_mask, 
+        titleid=torch.from_numpy(np.array([titleid])))
     # add output mask to mask additional nodes : category, venue, topic node
     return data
 
@@ -330,8 +332,8 @@ def async_postprocessing(paper, H, idx, processed_dir, cache_file_prefix, cutoff
     if sub_G is None:
         return None
     if idx < 100: # debug purpose make sure sub_G nodes number differ each iteration
-        print(len(sub_G.nodes) , hit, pred_cnt)
-    data = graph2data(sub_G)
+        print(len(sub_G.nodes), hit, pred_cnt)
+    data = graph2data(sub_G, paper['title'])
     filename = cache_file_prefix+'_{}_v2.pt'.format(idx)
     torch.save(data, osp.join(processed_dir, filename))
     return None
@@ -350,10 +352,8 @@ class Aminer(Dataset):
             init_dblp()
         self.data_folder = 'dblp_hete'
         if baseline:
-            self.data_folder = 'dblp_hete_baseline'
-        # with open('aminer/preprocess_dblp.pkl', 'rb') as f:
-        #     cache_data = pickle.load(f)
-        self.cache_file_prefix = '{}_{}_{}_{}'.format(
+            self.data_folder = 'dblp_hete_base'
+        self.cache_file_prefix = '{}_{}_{}_{}_3'.format(
             'dblp', self.cutoff, self.ratio, self.min_size)
         self.processed_dir = osp.join(osp.join("processed", self.data_folder), 'processed')
         match_filename = self.cache_file_prefix+'_*_v2.pt'
@@ -424,13 +424,10 @@ class Aminer(Dataset):
             if 'conf' in paper:
                 paper['conf'] = conf2id[paper['conf']]
 
-            args = [paper, H.copy(), idx, self.processed_dir, self.cache_file_prefix]
-            kwds = {
-                'cutoff': self.cutoff,
-            }
-            res = pool.apply_async(async_postprocessing, args=args, kwds=kwds)
-            results.append(res)
-
+            async_postprocessing(paper, H.copy(), idx, self.processed_dir, self.cache_file_prefix,
+                cutoff=self.cutoff)
+            # res = pool.apply_async(async_postprocessing, args=args, kwds=kwds)
+            # results.append(res)
             if self.baseline:
                 H = append_paper_graph_baseline(H, deepcopy(p), author2id)
             else:
@@ -445,7 +442,7 @@ class Aminer(Dataset):
 
     def get(self, idx):
         if isinstance(idx, list):
-            self.processed_file_idx = idx
+            self.processed_file_idx = np.array(self.processed_file_idx)[idx]
             return deepcopy(self)
         filename = self.processed_file_names[idx]
         data = torch.load(filename)

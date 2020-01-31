@@ -199,7 +199,7 @@ class GroupGCN():
                     x, edge_index = data.x, data.edge_index
                     x = x.cuda()
                     edge_index = edge_index.cuda()
-                    pred_mask = data.label_mask.cuda()
+                    pred_mask = data.label_mask.cuda() == 1
                     label = data.y.unsqueeze(-1).cuda().float()
                     output = model(edge_index, x)
 
