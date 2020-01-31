@@ -90,6 +90,7 @@ class GroupGCN():
         self.log_path = osp.join(
             "logs", "meetup",
             args.dataset+'_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+        self.writer = None
         self.writer = SummaryWriter(log_dir=self.log_path)
         self.save_path = osp.join(self.log_path, "models")
         os.makedirs(self.save_path, exist_ok=True)
@@ -190,8 +191,8 @@ class GroupGCN():
 
         n_iter = 0
         best_f1 = 0
-
-        self.writer.add_text('Text', dict2table(vars(args)), 0)
+        if self.writer:
+            self.writer.add_text('Text', dict2table(vars(args)), 0)
 
         with tqdm(total=len(train_loader)*epochs, dynamic_ncols=True) as pbar:
             for epoch in range(epochs):
@@ -203,19 +204,21 @@ class GroupGCN():
                     pred_mask = data.label_mask.cuda() == 1
                     label = data.y.unsqueeze(-1).cuda().float()
                     output = model(edge_index, x)
-                    
-                    loss = criterion(output, label)
+                    # pred_ = torch.sigmoid(output) > 0.5
+                    # print(pred_.sum(), label.sum(), pred_mask.sum())
+                    loss = criterion(output[pred_mask], label[pred_mask])
                     loss.backward()
 
                     optimizer.step()
-                    self.writer.add_scalar(
-                        "Train/BCEWithLogitsLoss", loss.item(), n_iter)
+                    if self.writer:
+                        self.writer.add_scalar(
+                            "Train/BCEWithLogitsLoss", loss.item(), n_iter)
                     pbar.update(1)
                     pbar.set_description(
                         "loss {:.4f}, epoch {}".format(loss.item(), epoch))
                     n_iter += 1
 
-                if epoch % args.eval == 0:
+                if epoch % args.eval == 0 and self.writer:
                     print('Epoch: ', epoch)
                     f1, recalls, precisions = self.evaluate(valid_loader,
                                                             model)
@@ -233,7 +236,7 @@ class GroupGCN():
                         }
                     print(f1)
 
-                if epoch % args.save == 0:
+                if epoch % args.save == 0 and self.writer:
                     self.save_checkpoint({
                         'epoch': epoch+1,
                         'model': model.state_dict(),
@@ -243,17 +246,18 @@ class GroupGCN():
                         self.save_path,
                         "{}".format(epoch+1)
                     )
-
-        print("Testing")
-        self.save_checkpoint(best_checkpoint,
-                             self.save_path,
-                             "best")
-        model.load_state_dict(best_checkpoint["model"])
-        f1, recalls, precisions = self.evaluate(test_loader, model)
-        self.writer.add_scalar("Test/F1", f1, n_iter)
-        self.writer.add_scalar("Test/Recalls", recalls, n_iter)
-        self.writer.add_scalar("Test/Precisions", precisions, n_iter)
-        self.writer.flush()
+        if self.writer:
+            print("Testing")
+            self.save_checkpoint(best_checkpoint,
+                                self.save_path,
+                                "best")
+            model.load_state_dict(best_checkpoint["model"])
+            f1, recalls, precisions = self.evaluate(test_loader, model)
+            
+            self.writer.add_scalar("Test/F1", f1, n_iter)
+            self.writer.add_scalar("Test/Recalls", recalls, n_iter)
+            self.writer.add_scalar("Test/Precisions", precisions, n_iter)
+            self.writer.flush()
 
 
 if __name__ == "__main__":

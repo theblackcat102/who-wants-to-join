@@ -31,7 +31,7 @@ locations_id = {
 
 
 def build_initial_graph(city_id=10001, min_size=5, max_size=500, cutoff=2,
-                        exist_ratio=0.8):
+                        exist_ratio=0.8, min_freq=3):
     df = pd.read_csv(MEETUP_GROUP)
     df = df[df['city_id'] == city_id]
 
@@ -296,7 +296,7 @@ def async_graph_save(group, group_mappings, ratio, cutoff, G, user2id,
 
 
 
-def convertmemberattributes(city_id, min_size, max_size, node_min_freq):
+def convertmemberattributes(city_id, min_size, max_size, node_min_freq=3):
     df = pd.read_csv(MEETUP_MEMBER, encoding='latin-1')
     user2id_name = '%d_%d_%d_%d_user2id.pkl' % (city_id, min_size, max_size, node_min_freq)
     with open(os.path.join(MEETUP_FOLDER, user2id_name), 'rb') as f:
