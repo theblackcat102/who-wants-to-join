@@ -310,20 +310,27 @@ def convertmemberattributes(city_id, min_size, max_size, node_min_freq):
 class Meetup(Dataset):
 
     def __init__(self, cutoff=2, ratio=0.8, min_size=5, max_size=100,
-                 city_id=10001):
+                 city_id=10001, min_freq=3):
         self.cutoff = cutoff
         self.ratio = ratio
         self.min_size = min_size
         self.max_size = max_size
         self.group_size = 5000
         self.city_id = city_id
-        self.cache_file_prefix = '{}_{}_{}_{}_{}'.format(
-            'meetups', self.city_id, self.cutoff, self.ratio, self.min_size)
-        user2id_name = '%d_%d_%d_user2id.pkl' % (
-            self.city_id, self.min_size, self.max_size)
+        self.min_freq = min_freq
+        self.cache_file_prefix = '{}_{}_{}_{}_{}_{}'.format(
+            'meetups', self.city_id, self.cutoff, self.ratio, self.min_size, self.min_freq)
+        user2id_name = '%d_%d_%d_%d_user2id.pkl' % (
+            self.city_id, self.min_size, self.max_size, self.min_freq)
         if osp.exists(osp.join(MEETUP_FOLDER, user2id_name)):
             with open(osp.join(MEETUP_FOLDER, user2id_name), 'rb') as f:
                 self.user2id = pickle.load(f)
+        group2id_name = '%d_%d_%d_%d_group2id.pkl' % (
+            self.city_id, self.min_size, self.max_size, self.min_freq)
+
+        if osp.exists(osp.join(MEETUP_FOLDER, group2id_name)):
+            with open(osp.join(MEETUP_FOLDER, group2id_name), 'rb') as f:
+                self.group2id = pickle.load(f)
         match_filename = self.cache_file_prefix + '_*_v2.pt'
         self.processed_dir = osp.join(osp.join("processed", str(self.city_id)), 'processed')
         self.processed_file_idx = list(glob.glob(osp.join(self.processed_dir, match_filename)))
@@ -347,22 +354,7 @@ class Meetup(Dataset):
 
     def process(self):
         length = 0
-
-        print(self.processed_dir)
-        for idx in range(self.group_size):
-            filename = self.cache_file_prefix+'_{}_v2.pt'.format(idx)
-            length = idx
-            if not osp.exists(osp.join(self.processed_dir, filename)):
-                print(filename)
-                # all_found = False
-                length = idx
-                break
-        print('length: {}'.format(length))
-
-        if length != 0:
-            print('update')
-            self.group_size = length
-            self.processed_file_idx = [idx for idx in range(self.group_size)]
+        if len(self.processed_file_idx) != 0:
             return
 
         cache_data_f = '{}_{}_{}_{}.pklz'.format(
@@ -385,8 +377,8 @@ class Meetup(Dataset):
                 cache_data['G'], cache_data['first'], cache_data['second'])
             del cache_data
 
-        group2id_name = '%d_%d_%d_group2id.pkl' % (
-            self.city_id, self.min_size, self.max_size)
+        group2id_name = '%d_%d_%d_%d_group2id.pkl' % (
+            self.city_id, self.min_size, self.max_size, self.min_freq)
 
         if not osp.exists(osp.join(MEETUP_FOLDER, group2id_name)):
             group2id = defaultdict(int)
@@ -483,8 +475,9 @@ class Meetup(Dataset):
 
     def get(self, idx):
         if isinstance(idx, list):
-            np.array(self.processed_file_idx)[idx]
-            return deepcopy(self)
+            new_ = deepcopy(self)
+            new_.processed_file_idx = list(np.array(self.processed_file_idx)[idx])
+            return new_
 
         filename = self.processed_file_idx[idx]
         data = torch.load(filename)

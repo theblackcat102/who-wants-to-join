@@ -239,14 +239,18 @@ def create_subgraph(paper, G, exist_ratio=0.8, cutoff=3):
     # print(exist_nodes)
     for start_node in authors:
         if G.has_node(start_node):
-            n_nodes = get_neighbour_nodes(G, start_node, cutoff=cutoff)
-            sub_graph_nodes += [n for n in n_nodes]
+            n_nodes = nx.single_source_shortest_path_length(G, start_node, cutoff=cutoff)
+            sub_graph_nodes += list(n_nodes)
             sub_graph_nodes.append(start_node)
 
     sub_graph_nodes = set(sub_graph_nodes)
     # print(sub_graph_nodes)
     in_group_cnt = 0
     hit = 0
+    exist_nodes = set(exist_nodes)
+    authors = set(authors)
+    predict_nodes = set(predict_nodes)
+
     for node in sub_graph_nodes:
         in_group = 1 if node in authors else 0
         known_member = 1 if node in exist_nodes else 0
@@ -265,6 +269,11 @@ def create_subgraph(paper, G, exist_ratio=0.8, cutoff=3):
     
     for node in sub_graph_nodes:
         for n in G.neighbors(node):
+            if node == paper['title'] and n in predict_nodes:
+                continue
+            if n == paper['title'] and node in predict_nodes:
+                continue
+
             if sub_G.has_node(node) and sub_G.has_node(n):
                 sub_G.add_edge(node, n)
     return sub_G, hit, predict_ratio
@@ -382,11 +391,11 @@ class Aminer(Dataset):
         match_filename = self.cache_file_prefix+'_*_v2.pt'
         length = len(list(glob.glob(osp.join(self.processed_dir, match_filename))))
         print('length: {}'.format(length))
-        if length != 0:
-            print('update')
-            self.group_size = length
-            self.processed_file_idx = list(glob.glob(osp.join(self.processed_dir, match_filename)))
-            return
+        # if length != 0:
+        #     print('update')
+        #     self.group_size = length
+        #     self.processed_file_idx = list(glob.glob(osp.join(self.processed_dir, match_filename)))
+        #     return
         self.init_preprocessing()
         self.list_of_data = list(glob.glob(osp.join(self.processed_dir, match_filename)))
 

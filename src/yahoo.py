@@ -36,7 +36,7 @@ def get_node_name(node_id):
     node_name = node_type+str(node_id)
     return node_name
 
-def init_graph_with_group():
+def init_graph_with_group(size='normal'):
     '''
         1,637,868 total nodes
             638,124 nodes on left  (representing groups)
@@ -49,25 +49,43 @@ def init_graph_with_group():
     '''
     G = nx.Graph()
     group_mappings = {}
+    limit = 1000000
+    if size == 'small':
+        limit = 10000+1
+    print(limit)
     with open('data/yahoo-group/ydata-ygroups-user-group-membership-graph-v1_0.txt', 'r') as f:
         for idx, line in enumerate(f.readlines()):
             if idx == 0: # ignore header line
                 continue
             node_id = idx
             node_name = get_node_name(node_id)
+            if node_name[0] == 'g' and node_id >= limit:
+                continue
 
+            edges_node = [ int(node_id_) for node_id_ in line.strip().split(' ') ]
+            if edges_node < 5:
+                continue
+            
             if not G.has_node(node_name):
                 G.add_node(node_name)
-            edges_node = [ int(node_id_) for node_id_ in line.strip().split(' ') ]
-
+            cnt = 0
+            valid_nodes = []
             for n in edges_node:
+                if node_name[0] == 'u' and n >= limit:
+                    continue
+
                 neighbour_name = get_node_name(n)
                 if not G.has_node(neighbour_name):
                     G.add_node(neighbour_name)
                 G.add_edge(node_name, neighbour_name)
+                valid_nodes.append(n)
+                cnt += 1
 
-            if node_name[0] == 'g':
-                group_mappings[node_id] = np.array(edges_node) - USER_OFFSET
+            if cnt == 0:
+                G.remove_node(node_name)
+            elif node_name[0] == 'g':
+                group_mappings[node_id] = np.array(valid_nodes) - USER_OFFSET
+
     return G, group_mappings
 
 

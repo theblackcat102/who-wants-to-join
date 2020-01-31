@@ -145,6 +145,7 @@ class GroupGCN():
         val_size = len(self.valid_dataset.processed_file_idx)
         train_val_set_size = len(set(self.valid_dataset.processed_file_idx +
                                      self.train_dataset.processed_file_idx))
+
         assert train_val_set_size == (train_size+val_size)
 
         train_loader = DataLoader(self.train_dataset,
@@ -202,8 +203,8 @@ class GroupGCN():
                     pred_mask = data.label_mask.cuda() == 1
                     label = data.y.unsqueeze(-1).cuda().float()
                     output = model(edge_index, x)
-
-                    loss = criterion(output[pred_mask], label[pred_mask])
+                    
+                    loss = criterion(output, label)
                     loss.backward()
 
                     optimizer.step()
