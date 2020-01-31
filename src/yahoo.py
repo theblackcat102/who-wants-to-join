@@ -204,7 +204,16 @@ class Yahoo(Dataset):
         if len(self.list_of_data) != 0:
             return
         print('initialze graph mappings')
-        G, group_mappings = init_graph_with_group()
+        if not os.path.exists('data/yahoo-group/cache.pkl'):
+            G, group_mappings = init_graph_with_group()
+            with open('data/yahoo-group/cache.pkl', 'wb') as f:
+                pickle.dump({
+                    'G': G, 'mappings': group_mappings
+                }, f)
+        else:
+            with open('data/yahoo-group/cache.pkl', 'rb') as f:
+                cache = pickle.load(f)
+            G, group_mappings = cache['G'], cache['mappings']
 
         in_group_cnt = 0
         # with tqdm(total=len(group_mappings), dynamic_ncols=True) as pbar:
@@ -220,7 +229,7 @@ class Yahoo(Dataset):
         results = []
         idx = 0
         # chunkize to cpu_count()*5 for better load balance
-        chunk_size = len(group_mappings)//2
+        chunk_size = len(group_mappings)//3
         pool = mp.Pool(processes=3)
         for sub_group2member in chunks(group_mappings, chunk_size):
             args = [G, sub_group2member, pbar_queue, 
@@ -228,8 +237,8 @@ class Yahoo(Dataset):
                  self.cache_file_prefix, self.processed_dir]
             res = pool.apply_async(preprocess_groups, args=args)
             results.append(res)
-
             idx += len(sub_group2member)
+
         for res in results:
             in_group_cnt += res.get()
         pool.close()
