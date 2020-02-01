@@ -186,7 +186,7 @@ class GroupGCN():
                     output, node_pred = model(edge_index, x)
 
                     entropy_loss = crossentropy(node_pred, x[:, 2])
-                    binary_loss = criterion(output, label)
+                    binary_loss = criterion(output[pred_mask], label[pred_mask])
                     loss = binary_loss+entropy_loss
                     loss.backward()
 

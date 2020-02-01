@@ -71,6 +71,9 @@ class StackedGCNYahoo(torch.nn.Module):
         :output_channels: Number of target features.
         """
         super(StackedGCNYahoo, self).__init__()
+        self.user_size = ( user_size, user_dim)
+        self.group_size =  (group_size, group_dim)
+
         self.embeddings = nn.Embedding(user_size, user_dim)
         self.known_embeddings = nn.Embedding(2, user_dim)
         self.user_proj = nn.Sequential(
@@ -144,7 +147,8 @@ class StackedGCNAmazon(torch.nn.Module):
         :output_channels: Number of target features.
         """
         super(StackedGCNAmazon, self).__init__()
-
+        self.user_size = ( user_size, user_dim)
+        self.category_size =  (category_size, category_dim)
         # print(user_size, category_size, topic_size, group_size)
         # print(user_dim, category_dim, topic_dim, group_dim)
 
@@ -229,7 +233,9 @@ class StackedGCNDBLP(torch.nn.Module):
         :output_channels: Number of target features.
         """
         super(StackedGCNDBLP, self).__init__()
-
+        self.author_size = ( author_size, user_dim)
+        self.paper_size =  (paper_size, paper_dim)
+        self.conf_size = (conf_size, conf_dim)
         # print(user_size, category_size, topic_size, group_size)
         # print(user_dim, category_dim, topic_dim, group_dim)
 
@@ -323,7 +329,10 @@ class StackedGCNMeetup(torch.nn.Module):
         :output_channels: Number of target features.
         """
         super(StackedGCNMeetup, self).__init__()
-
+        self.user_size = ( user_size, user_dim)
+        self.category_size=  (category_size, category_dim)
+        self.topic_size = (topic_size, topic_dim)
+        self.group_size = (group_size, group_dim)
         # print(user_size, category_size, topic_size, group_size)
         # print(user_dim, category_dim, topic_dim, group_dim)
 
