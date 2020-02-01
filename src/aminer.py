@@ -391,11 +391,11 @@ class Aminer(Dataset):
         match_filename = self.cache_file_prefix+'_*_v2.pt'
         length = len(list(glob.glob(osp.join(self.processed_dir, match_filename))))
         print('length: {}'.format(length))
-        # if length != 0:
-        #     print('update')
-        #     self.group_size = length
-        #     self.processed_file_idx = list(glob.glob(osp.join(self.processed_dir, match_filename)))
-        #     return
+        if length != 0:
+            print('update')
+            self.group_size = length
+            self.processed_file_idx = list(glob.glob(osp.join(self.processed_dir, match_filename)))
+            return
         self.init_preprocessing()
         self.list_of_data = list(glob.glob(osp.join(self.processed_dir, match_filename)))
 
@@ -451,8 +451,9 @@ class Aminer(Dataset):
 
     def get(self, idx):
         if isinstance(idx, list):
-            self.processed_file_idx = np.array(self.processed_file_idx)[idx]
-            return deepcopy(self)
+            new_self = deepcopy(self)
+            new_self.processed_file_idx = np.array(self.processed_file_idx)[idx]
+            return new_self
         filename = self.processed_file_names[idx]
         data = torch.load(filename)
         return data

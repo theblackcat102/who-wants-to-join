@@ -66,6 +66,8 @@ class GroupGCN():
         self.category_size = len(cat2id)
         self.topic_size = len(topic2id)
         self.group_size = len(dataset.group2id)
+        del cat2id
+        del topic2id
 
         dataset = dataset[shuffle_idx]
 
@@ -276,13 +278,16 @@ class GroupGCN():
         print(self.writer)
         embeddings = {}
         for node_type, (embed_size, dim) in node_types.items():
+
+            samples = sample_walks(self.train_dataset, 5, batch_size, node_type, embed_size)
+
             skip_model = SkipGramNeg(embed_size, dim)
             optimizer = optim.Adam(skip_model.parameters())
             iteration = list(range(len(self.train_dataset)))
             total_idx = 0
             print('sampling')
-            samples = sample_walks(self.train_dataset, 20, batch_size, node_type, embed_size)
 
+            torch.save({'samples' : samples}, os.path.join(self.save_path, 'random_walk_{}.pt'.format(node_type)))
             with tqdm(total=len(iteration)*epoch_num) as pbar:
                 for e in range(epoch_num):
                     random.shuffle(samples)
@@ -293,7 +298,11 @@ class GroupGCN():
                         # inputs, labels, negative = generate_batch(sub_G, batch_size, 
                         #     node_type, embed_size, neg_num=20)
                         inputs, labels, negative = sample
-                        loss = skip_model(torch.from_numpy(inputs), torch.from_numpy(labels), torch.from_numpy(negative))
+                        inputs = torch.from_numpy(inputs).to(dtype=torch.long)
+                        labels = torch.from_numpy(labels).to(dtype=torch.long)
+                        negative = torch.from_numpy(negative).to(dtype=torch.long)
+                        loss = skip_model(inputs, labels, negative)
+
                         loss.backward()
                         optimizer.step()
                         pbar.set_description(
@@ -302,6 +311,7 @@ class GroupGCN():
                             self.writer.add_scalar('Skipgram/loss/%d' % node_type, loss.item(), total_idx)
                         total_idx += 1
                         pbar.update(1)
+            del samples
             embeddings[node_type] = skip_model.input_emb.weight
             if node_type == 0:
                 print('transfer user embeddings')
