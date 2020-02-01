@@ -54,11 +54,10 @@ def create_sample_walk(G, src, total_walk=100):
 
 def sample_negative(G, total_size, inputs, num):
     negative = []
-    population = list(range(total_size))
     for t in inputs:
-        neg = np.random.randint(0, population, num)
+        neg = np.random.randint(0, total_size, num)
         if t in neg:
-            neg = np.random.randint(0, population, num)
+            neg = np.random.randint(0, total_size, num)
         negative.append(neg)
     return np.array(negative)
 
@@ -113,7 +112,9 @@ def sample_walks(train_datasets, neg_num, batch_size, node_type, embed_size):
         results.append(res)
     for r in results:
         samples.append(r.get())
+
     pool.close()
+
     return samples
 
 class SkipGramNeg(nn.Module):

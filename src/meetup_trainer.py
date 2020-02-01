@@ -286,7 +286,6 @@ class GroupGCN():
             iteration = list(range(len(self.train_dataset)))
             total_idx = 0
             print('sampling')
-
             torch.save({'samples' : samples}, os.path.join(self.save_path, 'random_walk_{}.pt'.format(node_type)))
             with tqdm(total=len(iteration)*epoch_num) as pbar:
                 for e in range(epoch_num):
