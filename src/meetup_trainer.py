@@ -11,33 +11,7 @@ import os
 import os.path as osp
 import numpy as np
 from src.skipgram import generate_batch, SkipGramNeg, data_to_networkx_, sample_walks
-from src.utils import dict2table
-
-
-def confusion(prediction, truth):
-    """ Returns the confusion matrix for the values in the `prediction` and
-        `truth` tensors, i.e. the amount of positions where the values of
-        `prediction` and `truth` are
-    - 1 and 1 (True Positive)
-    - 1 and 0 (False Positive)
-    - 0 and 0 (True Negative)
-    - 0 and 1 (False Negative)
-    """
-
-    confusion_vector = prediction / truth
-    # Element-wise division of the 2 tensors returns a new tensor which holds a
-    # unique value for each case:
-    #   1     where prediction and truth are 1 (True Positive)
-    #   inf   where prediction is 1 and truth is 0 (False Positive)
-    #   nan   where prediction and truth are 0 (True Negative)
-    #   0     where prediction is 0 and truth is 1 (False Negative)
-
-    true_positives = torch.sum(confusion_vector == 1).item()
-    false_positives = torch.sum(confusion_vector == float('inf')).item()
-    true_negatives = torch.sum(torch.isnan(confusion_vector)).item()
-    false_negatives = torch.sum(confusion_vector == 0).item()
-
-    return true_positives, false_positives, true_negatives, false_negatives
+from src.utils import dict2table, confusion, str2bool
 
 
 class GroupGCN():
@@ -171,8 +145,8 @@ class GroupGCN():
                                  input_channels=args.input_dim,
                                  layers=args.layers,
                                  dropout=args.dropout)
-
-        model = self.pretrain_embeddings(model, 64, epoch_num=2)
+        if args.pretrain:
+            model = self.pretrain_embeddings(model, 64, epoch_num=2)
 
         model = model.cuda()
 
@@ -345,6 +319,7 @@ if __name__ == "__main__":
     parser.add_argument('--pos-weight', type=float, default=-1)
     parser.add_argument('--eval', type=int, default=10)
     parser.add_argument('--save', type=int, default=50)
+    parser.add_argument('--pretrain', type=str2bool, nargs='?', default=False)
     # model parameters
     parser.add_argument('--input-dim', type=int, default=8)
     parser.add_argument('--dropout', type=float, default=0.1)

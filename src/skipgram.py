@@ -52,7 +52,7 @@ def create_sample_walk(G, src, total_walk=100):
         inputs.append(G.nodes[n]['id'])
     return np.array(labels), np.array(inputs)
 
-def sample_negative(G, total_size, inputs, num):
+def sample_negative(total_size, inputs, num):
     negative = []
     for t in inputs:
         neg = np.random.randint(0, total_size, num)
@@ -70,28 +70,35 @@ def generate_batch(G, batch_size, node_type, embedding_size, neg_num=2):
 
     # pool = mp.Pool()
     results = []
+    cnt = 0
     while batch_cnt < batch_size:
         similar_nodes = extract_node_type(G, node_type)
         for n in similar_nodes:
-            # res = pool.apply_async(sample_pairs, (G, n, embedding_size, neg_num))
-            # results.append(res)
-            labels, inputs = create_sample_walk(G, n, total_walk=5)
-            negative_samples = sample_negative(G, embedding_size, inputs, neg_num)
+            labels, inputs = create_sample_walk(G, n, total_walk=10)
             batch_cnt += len(labels)
+            if len(inputs) > 0:
+                batch_labels.append(labels)
+                batch_inputs.append(inputs)
 
-            batch_labels.append(labels)
-            batch_inputs.append(inputs)
-
-            if negative_samples.shape[-1] == neg_num:
+                negative_samples = sample_negative(embedding_size, inputs, neg_num)
                 batch_negative_samples.append(negative_samples)
+
             if batch_cnt >= batch_size:
                 break
-    batch_labels = np.concatenate(batch_labels).flatten()
-    batch_inputs = np.concatenate(batch_inputs).flatten()
-    batch_negative_samples = np.concatenate(batch_negative_samples)
-
-    shuffle_idx = list(range(batch_size))
-    random.shuffle(shuffle_idx)
+        cnt += 1
+        if cnt > 100:
+            break
+    try:
+        batch_labels = np.concatenate(batch_labels).flatten()
+        batch_inputs = np.concatenate(batch_inputs).flatten()
+        batch_negative_samples = np.concatenate(batch_negative_samples)
+        shuffle_size = np.min([batch_size, len(batch_inputs), len(batch_labels), len(batch_negative_samples)])
+        shuffle_idx = list(range(shuffle_size))
+        random.shuffle(shuffle_idx)
+    except KeyboardInterrupt:
+        raise ValueError('exit')
+    except:
+        return [], [], []
 
     return batch_inputs[shuffle_idx], batch_labels[shuffle_idx], batch_negative_samples[shuffle_idx]
 
@@ -110,8 +117,17 @@ def sample_walks(train_datasets, neg_num, batch_size, node_type, embed_size):
     for dataset in train_datasets:
         res = pool.apply_async(sample_pairs ,(dataset, neg_num, batch_size, node_type, embed_size))
         results.append(res)
-    for r in results:
-        samples.append(r.get())
+    try:
+        for r in results:
+            inputs, labels, neg_ = r.get()
+            if len(inputs)> 0:
+                samples.append((inputs, labels, neg_))
+    except KeyboardInterrupt:
+        pool.close()
+        raise ValueError('exit')
+    except:        
+        pool.close()
+        return samples
 
     pool.close()
 

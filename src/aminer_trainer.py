@@ -10,35 +10,8 @@ import pickle
 import os
 import os.path as osp
 import numpy as np
-
-from src.utils import dict2table
-
-
-def confusion(prediction, truth):
-    """ Returns the confusion matrix for the values in the `prediction` and
-        `truth` tensors, i.e. the amount of positions where the values of
-        `prediction` and `truth` are
-    - 1 and 1 (True Positive)
-    - 1 and 0 (False Positive)
-    - 0 and 0 (True Negative)
-    - 0 and 1 (False Negative)
-    """
-
-    confusion_vector = prediction / truth
-    # Element-wise division of the 2 tensors returns a new tensor which holds a
-    # unique value for each case:
-    #   1     where prediction and truth are 1 (True Positive)
-    #   inf   where prediction is 1 and truth is 0 (False Positive)
-    #   nan   where prediction and truth are 0 (True Negative)
-    #   0     where prediction is 0 and truth is 1 (False Negative)
-
-    true_positives = torch.sum(confusion_vector == 1).item()
-    false_positives = torch.sum(confusion_vector == float('inf')).item()
-    true_negatives = torch.sum(torch.isnan(confusion_vector)).item()
-    false_negatives = torch.sum(confusion_vector == 0).item()
-
-    return true_positives, false_positives, true_negatives, false_negatives
-
+from src.skipgram import generate_batch, SkipGramNeg, data_to_networkx_, sample_walks
+from src.utils import dict2table, confusion, str2bool
 
 class GroupGCN():
     def __init__(self, args):
@@ -144,9 +117,8 @@ class GroupGCN():
         # author2id = dblp['author2id']
         # paper2id = dblp['paper2id']
         # conf2id = dblp['conf2id']
-
         model = StackedGCNDBLP(
-                           author_size= 874608,#len(author2id),
+                           author_size=874608,#len(author2id),
                            paper_size=3605603,#len(paper2id),
                            conf_size=12770,#len(conf2id),
                            user_dim=args.author_dim,
@@ -155,6 +127,8 @@ class GroupGCN():
                            input_channels=args.input_dim,
                            layers=args.layers,
                            dropout=args.dropout)
+        if args.pretrain:
+            model = self.pretrain_embeddings(model, 64, epoch_num=2)
         model = model.cuda()
 
         if args.pos_weight <= 0:
@@ -236,15 +210,60 @@ class GroupGCN():
         self.writer.add_scalar("Test/Precisions", precisions, n_iter)
         self.writer.flush()
 
-def str2bool(v):
-    if isinstance(v, bool):
-       return v
-    if v.lower() in ('yes', 'true', 't', 'y', '1'):
-        return True
-    elif v.lower() in ('no', 'false', 'f', 'n', '0'):
-        return False
-    else:
-        raise argparse.ArgumentTypeError('Boolean value expected.')
+    def pretrain_embeddings(self, model, batch_size, epoch_num=1, neg_num=20):
+        from torch.optim.lr_scheduler import StepLR
+        import torch.optim as optim
+        print('Pretrain embeddings')
+        node_types = {
+            0: model.author_size,
+            1: model.paper_size,
+            2: model.conf_size,
+        }
+        embeddings = {}
+        for node_type, (embed_size, dim) in node_types.items():
+
+            samples = sample_walks(self.train_dataset, neg_num, batch_size, node_type, embed_size)
+
+            skip_model = SkipGramNeg(embed_size, dim)
+            skip_model = skip_model.cuda()
+            optimizer = optim.Adam(skip_model.parameters())
+            iteration = list(range(len(self.train_dataset)))
+            total_idx = 0
+            print('sampling')
+            torch.save({'samples' : samples}, os.path.join(self.save_path, 'random_walk_{}.pt'.format(node_type)))
+            with tqdm(total=len(iteration)*epoch_num) as pbar:
+                for e in range(epoch_num):
+                    random.shuffle(samples)
+                    for idx, sample in enumerate(samples):
+                        inputs, labels, negative = sample
+                        inputs = torch.from_numpy(inputs).to(dtype=torch.long).cuda()
+                        labels = torch.from_numpy(labels).to(dtype=torch.long).cuda()
+                        negative = torch.from_numpy(negative).to(dtype=torch.long).cuda()
+                        loss = skip_model(inputs, labels, negative)
+
+                        loss.backward()
+                        optimizer.step()
+                        pbar.set_description(
+                            "loss {:.4f}, iter {}".format(loss.item(), total_idx))
+                        if self.writer != None:
+                            self.writer.add_scalar('Skipgram/loss/%d' % node_type, loss.item(), total_idx)
+                        total_idx += 1
+                        pbar.update(1)
+            del samples
+            embeddings[node_type] = skip_model.input_emb.weight
+            model = model.cpu()
+            if node_type == 0:
+                print('transfer user embeddings')
+                model.embeddings.weight.data = skip_model.input_emb.weight.data
+            elif node_type == 1:
+                print('transfer topic embeddings')
+                model.paper_embeddings.weight.data = skip_model.input_emb.weight.data
+            elif node_type == 2:
+                print('transfer category embeddings')
+                model.conf_embeddings.weight.data = skip_model.input_emb.weight.data
+        torch.save(embeddings, os.path.join(self.save_path, 'embeddings.pt'))
+        return model
+
 
 if __name__ == "__main__":
     import argparse
@@ -264,6 +283,7 @@ if __name__ == "__main__":
     parser.add_argument('--pos-weight', type=float, default=-1)
     parser.add_argument('--eval', type=int, default=10)
     parser.add_argument('--save', type=int, default=50)
+    parser.add_argument('--pretrain', type=str2bool, nargs='?', default=False)
     # model parameters
     parser.add_argument('--author-dim', type=int, default=16)
     parser.add_argument('--paper-dim', type=int, default=16)
