@@ -34,7 +34,8 @@ class GroupGCN():
             cat2id = pickle.load(f)
 
         self.category_size = len(cat2id)
-
+        print('max: ', max(shuffle_idx))
+        print('len: ', len(dataset))
         dataset = dataset[shuffle_idx]
 
         split_pos = int(len(dataset)*0.7)

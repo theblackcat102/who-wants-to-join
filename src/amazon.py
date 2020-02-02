@@ -345,15 +345,15 @@ class AmazonCommunity(Dataset):
         for idx in range(self.group_size):
             filename = '{}_{}_{}_{}_hete_{}_v2.pt'.format(
                 self.dataset, self.cutoff, self.ratio, self.min_size, idx)
-            length = idx
             if not os.path.exists(osp.join(self.processed_dir, filename)):
                 print(filename)
                 # all_found = False
-                length = idx
                 break
+            length = idx
         if length != 0:
             self.group_size = length
             self.processed_file_idx = [idx for idx in range(self.group_size)]
+            print(np.max(self.processed_file_idx))
             return
         with open('data/amazon/amazon_meta.pkl', 'rb') as f:
             node_attr = pickle.load(f)
@@ -468,9 +468,10 @@ class AmazonCommunity(Dataset):
 
     def get(self, idx):
         if isinstance(idx, list):
-            self.processed_file_idx = idx
-            return deepcopy(self)
-
+            new_self = deepcopy(self)
+            new_self.processed_file_idx = idx
+            return new_self
+        idx = min( max(self.processed_file_idx),  idx)
         filename = '{}_{}_{}_{}_hete_{}_v2.pt'.format(
             self.dataset, self.cutoff, self.ratio, self.min_size, idx)
         data = torch.load(osp.join(self.processed_dir, filename))
