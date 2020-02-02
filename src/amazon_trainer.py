@@ -49,10 +49,10 @@ class GroupGCN():
         self.test_dataset = dataset[test_idx]
         self.valid_dataset = dataset[valid_idx]
 
-        # print(len(set(
-        #     self.valid_dataset.processed_file_idx +
-        #     self.train_dataset.processed_file_idx)))
-        # print(len(self.valid_dataset)+ len(self.train_dataset))
+        print(len(set(
+            self.valid_dataset.processed_file_idx +
+            self.train_dataset.processed_file_idx)))
+        print(len(self.valid_dataset)+ len(self.train_dataset))
 
         self.args = args
 
@@ -82,7 +82,7 @@ class GroupGCN():
                 x, edge_index = val_data.x, val_data.edge_index
                 y = val_data.y
                 pred_mask = val_data.label_mask
-                pred, _ = model(edge_index.cuda(), x.cuda())
+                pred = model(edge_index.cuda(), x.cuda())
                 pred = torch.sigmoid(pred).cpu()
                 # y = y[pred_mask]
                 y_pred.zero_()
@@ -162,19 +162,18 @@ class GroupGCN():
                     edge_index = edge_index.cuda()
                     pred_mask = data.label_mask.cuda()
                     label = data.y.unsqueeze(-1).cuda().float()
-                    output, node_pred = model(edge_index, x)
+                    output = model(edge_index, x)
 
-                    entropy_loss = crossentropy(node_pred, x[:, 2])
                     binary_loss = criterion(output[pred_mask], label[pred_mask])
-                    loss = binary_loss+entropy_loss
+                    loss = binary_loss
                     loss.backward()
 
                     optimizer.step()
                     self.writer.add_scalar(
                         "Train/BCEWithLogitsLoss", binary_loss.item(), n_iter)
-                    self.writer.add_scalar(
-                        "Train/CrossEntropyLoss", entropy_loss.item(), n_iter
-                    )
+                    # self.writer.add_scalar(
+                    #     "Train/CrossEntropyLoss", entropy_loss.item(), n_iter
+                    # )
                     pbar.update(1)
                     pbar.set_description(
                         "loss {:.4f}, epoch {}".format(loss.item(), epoch))
@@ -235,7 +234,7 @@ class GroupGCN():
 
             samples = sample_walks(self.train_dataset, neg_num, batch_size, node_type, embed_size)
 
-            skip_model = SkipGramNeg(embed_size, dim)
+            skip_model = SkipGramNeg(embed_size, dim).cuda()
             optimizer = optim.Adam(skip_model.parameters())
             iteration = list(range(len(self.train_dataset)))
             total_idx = 0
@@ -245,11 +244,11 @@ class GroupGCN():
                 for e in range(epoch_num):
                     random.shuffle(samples)
                     for idx, sample in enumerate(samples):
-                        inputs, labels, negative = sample
-                        inputs = torch.from_numpy(inputs).to(dtype=torch.long)
-                        labels = torch.from_numpy(labels).to(dtype=torch.long)
-                        negative = torch.from_numpy(negative).to(dtype=torch.long)
-                        loss = skip_model(inputs, labels, negative)
+                        context, target, negative = sample
+                        context = torch.from_numpy(context).to(dtype=torch.long).cuda()
+                        target = torch.from_numpy(target).to(dtype=torch.long).cuda()
+                        negative = torch.from_numpy(negative).to(dtype=torch.long).cuda()
+                        loss = skip_model(target, context, negative)
 
                         loss.backward()
                         optimizer.step()
@@ -260,6 +259,7 @@ class GroupGCN():
                         total_idx += 1
                         pbar.update(1)
             del samples
+            skip_model = skip_model.cpu()
             embeddings[node_type] = skip_model.input_emb.weight
             if node_type == 0:
                 print('transfer user embeddings')

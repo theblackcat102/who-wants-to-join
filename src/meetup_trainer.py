@@ -256,7 +256,8 @@ class GroupGCN():
             samples = sample_walks(self.train_dataset, 5, batch_size, node_type, embed_size)
 
             skip_model = SkipGramNeg(embed_size, dim)
-            optimizer = optim.Adam(skip_model.parameters())
+            skip_model = skip_model.cuda()
+            optimizer = optim.SGD(skip_model.parameters(), lr=1e-5, weight_decay=1e-9)
             iteration = list(range(len(self.train_dataset)))
             total_idx = 0
             print('sampling')
@@ -265,16 +266,11 @@ class GroupGCN():
                 for e in range(epoch_num):
                     random.shuffle(samples)
                     for idx, sample in enumerate(samples):
-                        # dataset = self.train_dataset[data_idx]
-                        # optimizer.zero_grad()
-                        # sub_G = data_to_networkx_(dataset)
-                        # inputs, labels, negative = generate_batch(sub_G, batch_size, 
-                        #     node_type, embed_size, neg_num=20)
-                        inputs, labels, negative = sample
-                        inputs = torch.from_numpy(inputs).to(dtype=torch.long)
-                        labels = torch.from_numpy(labels).to(dtype=torch.long)
-                        negative = torch.from_numpy(negative).to(dtype=torch.long)
-                        loss = skip_model(inputs, labels, negative)
+                        context, target, negative = sample
+                        context = torch.from_numpy(context).to(dtype=torch.long).cuda()
+                        target = torch.from_numpy(target).to(dtype=torch.long).cuda()
+                        negative = torch.from_numpy(negative).to(dtype=torch.long).cuda()
+                        loss = skip_model(target, context, negative)
 
                         loss.backward()
                         optimizer.step()
@@ -284,7 +280,9 @@ class GroupGCN():
                             self.writer.add_scalar('Skipgram/loss/%d' % node_type, loss.item(), total_idx)
                         total_idx += 1
                         pbar.update(1)
-            del samples
+            if total_idx == 0:
+                continue
+            skip_model = skip_model.cpu()
             embeddings[node_type] = skip_model.input_emb.weight
             if node_type == 0:
                 print('transfer user embeddings')

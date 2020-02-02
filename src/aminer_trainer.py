@@ -10,6 +10,7 @@ import pickle
 import os
 import os.path as osp
 import numpy as np
+from torch_geometric.nn.models.node2vec import Node2Vec
 from src.skipgram import generate_batch, SkipGramNeg, data_to_networkx_, sample_walks
 from src.utils import dict2table, confusion, str2bool
 
@@ -128,7 +129,7 @@ class GroupGCN():
                            layers=args.layers,
                            dropout=args.dropout)
         if args.pretrain:
-            model = self.pretrain_embeddings(model, 64, epoch_num=2)
+            model = self.pretrain_embeddings(model, 256, epoch_num=10)
         model = model.cuda()
 
         if args.pos_weight <= 0:
@@ -220,13 +221,15 @@ class GroupGCN():
             2: model.conf_size,
         }
         embeddings = {}
+        model = model.cpu()
+
         for node_type, (embed_size, dim) in node_types.items():
 
             samples = sample_walks(self.train_dataset, neg_num, batch_size, node_type, embed_size)
 
             skip_model = SkipGramNeg(embed_size, dim)
             skip_model = skip_model.cuda()
-            optimizer = optim.Adam(skip_model.parameters())
+            optimizer = optim.SGD(skip_model.parameters(), lr=1e-5, weight_decay=1e-9)
             iteration = list(range(len(self.train_dataset)))
             total_idx = 0
             print('sampling')
@@ -235,11 +238,11 @@ class GroupGCN():
                 for e in range(epoch_num):
                     random.shuffle(samples)
                     for idx, sample in enumerate(samples):
-                        inputs, labels, negative = sample
-                        inputs = torch.from_numpy(inputs).to(dtype=torch.long).cuda()
-                        labels = torch.from_numpy(labels).to(dtype=torch.long).cuda()
+                        context, target, negative = sample
+                        context = torch.from_numpy(context).to(dtype=torch.long).cuda()
+                        target = torch.from_numpy(target).to(dtype=torch.long).cuda()
                         negative = torch.from_numpy(negative).to(dtype=torch.long).cuda()
-                        loss = skip_model(inputs, labels, negative)
+                        loss = skip_model(target, context, negative)
 
                         loss.backward()
                         optimizer.step()
@@ -249,9 +252,11 @@ class GroupGCN():
                             self.writer.add_scalar('Skipgram/loss/%d' % node_type, loss.item(), total_idx)
                         total_idx += 1
                         pbar.update(1)
+            if total_idx == 0:
+                continue
+
             del samples
             embeddings[node_type] = skip_model.input_emb.weight
-            model = model.cpu()
             if node_type == 0:
                 print('transfer user embeddings')
                 model.embeddings.weight.data = skip_model.input_emb.weight.data

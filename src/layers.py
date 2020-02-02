@@ -139,7 +139,7 @@ class StackedGCNAmazon(torch.nn.Module):
     def __init__(
             self, user_size, category_size,
             user_dim=8, category_dim=4,
-            input_channels=8, output_channels=16, layers=[16, 16],
+            input_channels=8, output_channels=1, layers=[32, 32],
             dropout=0.1):
         """
         :param args: Arguments object.
@@ -178,9 +178,8 @@ class StackedGCNAmazon(torch.nn.Module):
                 GCNConv(self.layers_dim[i], self.layers_dim[i+1]))
         self.layers.append(GCNConv(self.layers_dim[-2], self.layers_dim[-1]))
         self.layers = nn.ModuleList(self.layers)
-        self.predict_member = nn.Linear(self.output_channels, 1)
-
-        self.predict_node = nn.Linear(self.output_channels, 2)
+        # self.predict_member = nn.Linear(self.output_channels, 1)
+        # self.predict_node = nn.Linear(self.output_channels, 2)
 
     def forward(self, edges, features):
         """
@@ -211,12 +210,12 @@ class StackedGCNAmazon(torch.nn.Module):
             if i > 1:
                 features = nn.functional.dropout(
                     features, p=self.dropout, training=self.training)
-        features = nn.functional.relu(self.layers[-1](features, edges))
+        features = self.layers[-1](features, edges)
 
         # predictions = torch.nn.functional.log_sigmoid(features, dim=1)
-        node_pred = self.predict_node(features)
-        member_pred = self.predict_member(features)
-        return member_pred, node_pred
+        # node_pred = self.predict_node(features)
+        # member_pred = self.predict_member(features)
+        return features
 
 class StackedGCNDBLP(torch.nn.Module):
     """
