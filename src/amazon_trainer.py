@@ -232,10 +232,11 @@ class GroupGCN():
         embeddings = {}
         for node_type, (embed_size, dim) in node_types.items():
 
-            samples = sample_walks(self.train_dataset, neg_num, batch_size, node_type, embed_size)
+            samples = sample_walks(self.train_dataset, neg_num, batch_size, node_type, embed_size, 
+                cpu_count=40)
 
             skip_model = SkipGramNeg(embed_size, dim).cuda()
-            optimizer = optim.Adam(skip_model.parameters())
+            optimizer = optim.SGD(skip_model.parameters(), lr=1e-5, weight_decay=1e-9)
             iteration = list(range(len(self.train_dataset)))
             total_idx = 0
             print('sampling')

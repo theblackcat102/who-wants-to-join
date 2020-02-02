@@ -8,6 +8,7 @@ from torch.autograd import Variable
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+from tqdm import tqdm
 import multiprocessing as mp
 
 def data_to_networkx_(data):
@@ -44,17 +45,16 @@ def sample_node_neighbour_hops(G, src, cutoff=2):
 
 def create_sample_walk(G, src, total_walk=100):
     neighbours = sample_node_neighbour_hops(G, src)
-    cutoff = 3
-    while len(neighbours) == 0 and cutoff < 4:
+    for cutoff in range(3, 6):
+        # some node require more hops to reach same node type
         neighbours = sample_node_neighbour_hops(G, src, cutoff=cutoff)
-        cutoff += 1
     random.shuffle(neighbours)
     neighbours = neighbours[:total_walk]
     src_id = G.nodes[src]['id']
     target, context = [], []
     for n in neighbours:
         target.append(src_id)
-        context.append(G.nodes[n]['id']) 
+        context.append(G.nodes[n]['id'])
     return np.array(target), np.array(context)
 
 def sample_negative(total_size, inputs, num):
@@ -75,8 +75,7 @@ def generate_batch(G, batch_size, node_type, embedding_size, neg_num=2):
 
     # pool = mp.Pool()
     results = []
-    cnt = 0
-    while batch_cnt < batch_size:
+    for cnt in range(100):
         similar_nodes = extract_node_type(G, node_type)
         for n in similar_nodes:
             target, context = create_sample_walk(G, n, total_walk=100)
@@ -89,22 +88,18 @@ def generate_batch(G, batch_size, node_type, embedding_size, neg_num=2):
 
             if batch_cnt >= batch_size:
                 break
-        cnt += 1
-        if cnt > 100:
+        if batch_cnt >= batch_size:
             break
-    try:
+        # prevent infinite loop
+    if len(batch_labels) != 0 and len(batch_inputs) != 0:
         batch_labels = np.concatenate(batch_labels)
         batch_inputs = np.concatenate(batch_inputs)
         batch_negative_samples = np.concatenate(batch_negative_samples)
         shuffle_size = np.min([batch_size, len(batch_inputs), len(batch_labels), len(batch_negative_samples)])
         shuffle_idx = list(range(shuffle_size))
         random.shuffle(shuffle_idx)
-    except KeyboardInterrupt:
-        raise ValueError('exit')
-    except:
-        return [], [], []
-    # context, target, negative 
-    return batch_inputs[shuffle_idx], batch_labels[shuffle_idx], batch_negative_samples[shuffle_idx]
+        return batch_inputs[shuffle_idx], batch_labels[shuffle_idx], batch_negative_samples[shuffle_idx]
+    return [], [], []
 
 
 def sample_pairs(dataset, neg_num, batch_size, node_type, embed_size):
@@ -114,17 +109,22 @@ def sample_pairs(dataset, neg_num, batch_size, node_type, embed_size):
     return labels, inputs, negative
 
 
-def sample_walks(train_datasets, neg_num, batch_size, node_type, embed_size):
-    pool = mp.Pool()
+def sample_walks(train_datasets, neg_num, batch_size, node_type, embed_size, cpu_count=None):
+    pool = mp.Pool(processes=cpu_count)
     results = []
     samples = []
-    for dataset in train_datasets:
+    for idx in range(len(train_datasets)):
+        dataset = train_datasets[idx]
         res = pool.apply_async(sample_pairs ,(dataset, neg_num, batch_size, node_type, embed_size))
         results.append(res)
+
     for r in results:
-        inputs, labels, neg_ = r.get()
-        if len(inputs)> 0:
-            samples.append((inputs, labels, neg_))
+        try:
+            inputs, labels, neg_ = r.get(timeout=1800)
+            if len(inputs)> 0:
+                samples.append((inputs, labels, neg_))
+        except mp.TimeoutError:
+            continue
     # except KeyboardInterrupt:
     #     pool.close()
     #     raise ValueError('exit')
