@@ -1,14 +1,8 @@
-from torch_geometric.utils.convert import to_networkx
-from src.meetup import Meetup
 import networkx as nx
 import random
 import numpy as np
 import torch
-from torch.autograd import Variable
 import torch.nn as nn
-import torch.nn.functional as F
-import numpy as np
-from tqdm import tqdm
 import multiprocessing as mp
 
 
@@ -33,7 +27,7 @@ def extract_node_type(G, type_):
     return nodes
 
 
-def sample_node_neighbour_hops(G, src, cutoff=2): 
+def sample_node_neighbour_hops(G, src, cutoff=2):
     # sample the same node type neighbour
     valid_node = []
     src_type = G.nodes[src]['type']
@@ -49,6 +43,8 @@ def create_sample_walk(G, src, total_walk=100):
     for cutoff in range(3, 6):
         # some node require more hops to reach same node type
         neighbours = sample_node_neighbour_hops(G, src, cutoff=cutoff)
+        if len(neighbours) > total_walk:
+            break
     random.shuffle(neighbours)
     neighbours = neighbours[:total_walk]
     src_id = G.nodes[src]['id']
@@ -80,7 +76,8 @@ def generate_batch(G, batch_size, node_type, embedding_size, neg_num=2):
             if len(context) > 0:
                 batch_labels.append(target)
                 batch_inputs.append(context)
-                negative_samples = sample_negative(embedding_size, target, neg_num)
+                negative_samples = sample_negative(embedding_size, target,
+                                                   neg_num)
                 batch_negative_samples.append(negative_samples)
 
             if batch_cnt >= batch_size:
@@ -92,7 +89,8 @@ def generate_batch(G, batch_size, node_type, embedding_size, neg_num=2):
         batch_labels = np.concatenate(batch_labels)
         batch_inputs = np.concatenate(batch_inputs)
         batch_negative_samples = np.concatenate(batch_negative_samples)
-        shuffle_size = np.min([batch_size, len(batch_inputs), len(batch_labels), len(batch_negative_samples)])
+        shuffle_size = np.min([batch_size, len(batch_inputs),
+                               len(batch_labels), len(batch_negative_samples)])
         shuffle_idx = list(range(shuffle_size))
         random.shuffle(shuffle_idx)
         return batch_inputs[shuffle_idx], batch_labels[shuffle_idx], batch_negative_samples[shuffle_idx]
@@ -106,7 +104,7 @@ def sample_pairs(dataset, neg_num, batch_size, node_type, embed_size):
     return labels, inputs, negative
 
 
-def sample_walks(train_datasets, neg_num, batch_size, node_type, embed_size, cpu_count=None):
+def sample_walks(train_datasets, neg_num, batch_size, node_type, embed_size, cpu_count=4):
     pool = mp.Pool(processes=cpu_count)
     results = []
     samples = []
