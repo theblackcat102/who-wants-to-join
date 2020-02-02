@@ -96,7 +96,7 @@ def init_dblp():
         }, f)
 
 
-def init_graph(papers, paper2id, conf2id, author2id, citation_graph):
+def init_graph(papers, paper2id, conf2id, author2id, citation_graph, index2title):
     G = nx.Graph()
     for paper in tqdm(papers):
         p = deepcopy(paper)
@@ -149,7 +149,7 @@ def init_graph_baseline(papers, author2id):
 
     return G
 
-def append_paper_graph(H, paper, paper2id, conf2id, author2id, citation_graph):
+def append_paper_graph(H, paper, paper2id, conf2id, author2id, citation_graph, index2title):
     # paper = deepcopy(p)
     p_id = 'p'+str(paper2id[paper['title']])
     c_id = 'c'+str(conf2id[paper['conf']])
@@ -359,7 +359,7 @@ class Aminer(Dataset):
         self.baseline = baseline
         if not os.path.exists('aminer/preprocess_dblp.pkl'):
             init_dblp()
-        self.data_folder = 'dblp_hete'
+        self.data_folder = 'dblp_v1'
         if baseline:
             self.data_folder = 'dblp_hete_base'
         self.cache_file_prefix = '{}_{}_{}_{}_3'.format(
@@ -419,7 +419,7 @@ class Aminer(Dataset):
         if self.baseline:
             G = init_graph_baseline(first_half_papers, author2id)
         else:
-            G = init_graph(first_half_papers, paper2id, conf2id, author2id, citation_graph)
+            G = init_graph(first_half_papers, paper2id, conf2id, author2id, citation_graph, index2title)
 
         H = G.copy()
         pool = mp.Pool(processes=8)
@@ -440,7 +440,8 @@ class Aminer(Dataset):
             if self.baseline:
                 H = append_paper_graph_baseline(H, deepcopy(p), author2id)
             else:
-                H = append_paper_graph(H, deepcopy(p), paper2id, conf2id, author2id, citation_graph)
+                H = append_paper_graph(H, deepcopy(p), paper2id, conf2id, 
+                    author2id, citation_graph, index2title)
 
             if idx % 200 == 0 and idx != 0:
                 sleep(10)
@@ -460,5 +461,5 @@ class Aminer(Dataset):
 
 
 if __name__ == "__main__":
-    # init_dblp()
+    init_dblp()
     Aminer()
