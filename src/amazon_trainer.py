@@ -10,21 +10,20 @@ import pickle
 import os
 import os.path as osp
 import numpy as np
-from src.skipgram import generate_batch, SkipGramNeg, data_to_networkx_, sample_walks
+from src.skipgram import SkipGramNeg, sample_walks
 from src.utils import dict2table, confusion, str2bool
-
 
 
 class GroupGCN():
     def __init__(self, args):
-        dataset_name = 'amazon'
-        dataset = AmazonCommunity(cutoff=args.maxhop,
-            min_size=args.min_size, max_size=args.max_size)
+        dataset = AmazonCommunity(cutoff=args.maxhop, min_size=args.min_size,
+                                  max_size=args.max_size)
 
         # make sure each runs share the same results
         if osp.exists('amazon_hete_shuffle_idx.pkl'):
             with open('amazon_hete_shuffle_idx.pkl', 'rb') as f:
                 shuffle_idx = pickle.load(f)
+            assert len(shuffle_idx) == len(dataset)
         else:
             shuffle_idx = [idx for idx in range(len(dataset))]
             random.shuffle(shuffle_idx)
@@ -52,7 +51,6 @@ class GroupGCN():
         print(len(set(
             self.valid_dataset.processed_file_idx +
             self.train_dataset.processed_file_idx)))
-        print(len(self.valid_dataset)+ len(self.train_dataset))
 
         self.args = args
 
@@ -125,12 +123,12 @@ class GroupGCN():
                                  shuffle=False)
 
         model = StackedGCNAmazon(len(self.train_dataset.user2id),
-                           category_size=self.category_size,
-                           user_dim=args.user_dim,
-                           category_dim=args.cat_dim,
-                           input_channels=args.input_dim,
-                           layers=args.layers,
-                           dropout=args.dropout)
+                                 category_size=self.category_size,
+                                 user_dim=args.user_dim,
+                                 category_dim=args.cat_dim,
+                                 input_channels=args.input_dim,
+                                 layers=args.layers,
+                                 dropout=args.dropout)
 
         if args.pretrain:
             model = self.pretrain_embeddings(model, 64, epoch_num=2)
@@ -147,7 +145,7 @@ class GroupGCN():
         pos_weight = torch.ones([1])*weight
         pos_weight = pos_weight.cuda()
         criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-        crossentropy = torch.nn.CrossEntropyLoss()
+        # crossentropy = torch.nn.CrossEntropyLoss()
         n_iter = 0
         best_f1 = 0
 
@@ -164,7 +162,8 @@ class GroupGCN():
                     label = data.y.unsqueeze(-1).cuda().float()
                     output = model(edge_index, x)
 
-                    binary_loss = criterion(output[pred_mask], label[pred_mask])
+                    binary_loss = criterion(output[pred_mask],
+                                            label[pred_mask])
                     loss = binary_loss
                     loss.backward()
 
@@ -195,7 +194,6 @@ class GroupGCN():
                             'optimizer': optimizer.state_dict(),
                             'f1': f1
                         }
-                    print(f1)
 
                 if epoch % args.save == 0:
                     self.save_checkpoint({
@@ -219,44 +217,45 @@ class GroupGCN():
         self.writer.add_scalar("Test/Precisions", precisions, n_iter)
         self.writer.flush()
 
-
     def pretrain_embeddings(self, model, batch_size, epoch_num=1, neg_num=20):
-        from torch.optim.lr_scheduler import StepLR
         import torch.optim as optim
         print('Pretrain embeddings')
         node_types = {
             0: model.user_size,
             1: model.category_size,
         }
-        print(self.writer)
         embeddings = {}
         for node_type, (embed_size, dim) in node_types.items():
-
-            samples = sample_walks(self.train_dataset, neg_num, batch_size, node_type, embed_size, 
-                cpu_count=40)
+            samples = sample_walks(self.train_dataset, neg_num, batch_size,
+                                   node_type, embed_size, cpu_count=40)
 
             skip_model = SkipGramNeg(embed_size, dim).cuda()
-            optimizer = optim.SGD(skip_model.parameters(), lr=1e-5, weight_decay=1e-9)
+            optimizer = optim.SGD(skip_model.parameters(), lr=1e-5,
+                                  weight_decay=1e-9)
             iteration = list(range(len(self.train_dataset)))
             total_idx = 0
-            print('sampling')
-            torch.save({'samples' : samples}, os.path.join(self.save_path, 'random_walk_{}.pt'.format(node_type)))
+            torch.save({'samples': samples},
+                       osp.join(self.save_path,
+                                'random_walk_{}.pt'.format(node_type)))
             with tqdm(total=len(iteration)*epoch_num) as pbar:
                 for e in range(epoch_num):
                     random.shuffle(samples)
                     for idx, sample in enumerate(samples):
                         context, target, negative = sample
-                        context = torch.from_numpy(context).to(dtype=torch.long).cuda()
-                        target = torch.from_numpy(target).to(dtype=torch.long).cuda()
-                        negative = torch.from_numpy(negative).to(dtype=torch.long).cuda()
+                        context = torch.from_numpy(context).long().cuda()
+                        target = torch.from_numpy(target).long().cuda()
+                        negative = torch.from_numpy(negative).long().cuda()
                         loss = skip_model(target, context, negative)
 
                         loss.backward()
                         optimizer.step()
                         pbar.set_description(
-                            "loss {:.4f}, iter {}".format(loss.item(), total_idx))
-                        if self.writer != None:
-                            self.writer.add_scalar('Skipgram/loss/%d' % node_type, loss.item(), total_idx)
+                            "loss {:.4f}, iter {}".format(loss.item(),
+                                                          total_idx))
+                        if self.writer is not None:
+                            self.writer.add_scalar(
+                                'Skipgram/loss/%d' % node_type,
+                                loss.item(), total_idx)
                         total_idx += 1
                         pbar.update(1)
             del samples
@@ -268,8 +267,9 @@ class GroupGCN():
             elif node_type == 1:
                 print('transfer category embeddings')
                 model.category_embeddings.weight.data = skip_model.input_emb.weight.data
-        torch.save(embeddings, os.path.join(self.save_path, 'embeddings.pt'))
+        torch.save(embeddings, osp.join(self.save_path, 'embeddings.pt'))
         return model
+
 
 if __name__ == "__main__":
     import argparse

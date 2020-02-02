@@ -11,12 +11,11 @@ import numpy as np
 from tqdm import tqdm
 import multiprocessing as mp
 
+
 def data_to_networkx_(data):
     G = nx.DiGraph()
     G.add_nodes_from(range(data.num_nodes))
-
-    values = {key: data[key].squeeze().tolist() for key in data.keys}
-
+    # values = {key: data[key].squeeze().tolist() for key in data.keys}
     for i, (u, v) in enumerate(data.edge_index.t().tolist()):
         G.add_edge(u, v)
     for x, attribute in enumerate(data.x):
@@ -24,6 +23,7 @@ def data_to_networkx_(data):
         G.nodes[x]['pred'] = attribute[1].data.item()
         G.nodes[x]['type'] = attribute[2].data.item()
     return G
+
 
 def extract_node_type(G, type_):
     nodes = []
@@ -43,6 +43,7 @@ def sample_node_neighbour_hops(G, src, cutoff=2):
             valid_node.append(n)
     return valid_node
 
+
 def create_sample_walk(G, src, total_walk=100):
     neighbours = sample_node_neighbour_hops(G, src)
     for cutoff in range(3, 6):
@@ -57,6 +58,7 @@ def create_sample_walk(G, src, total_walk=100):
         context.append(G.nodes[n]['id'])
     return np.array(target), np.array(context)
 
+
 def sample_negative(total_size, inputs, num):
     negative = []
     for t in inputs:
@@ -67,14 +69,9 @@ def sample_negative(total_size, inputs, num):
     return np.array(negative)
 
 
-
 def generate_batch(G, batch_size, node_type, embedding_size, neg_num=2):
-    batches = []
     batch_cnt = 0
     batch_labels, batch_inputs, batch_negative_samples = [], [], []
-
-    # pool = mp.Pool()
-    results = []
     for cnt in range(100):
         similar_nodes = extract_node_type(G, node_type)
         for n in similar_nodes:
@@ -104,8 +101,8 @@ def generate_batch(G, batch_size, node_type, embedding_size, neg_num=2):
 
 def sample_pairs(dataset, neg_num, batch_size, node_type, embed_size):
     sub_G = data_to_networkx_(dataset)
-    inputs, labels, negative = generate_batch(sub_G, batch_size, 
-        node_type, embed_size, neg_num=neg_num)
+    inputs, labels, negative = generate_batch(
+        sub_G, batch_size, node_type, embed_size, neg_num=neg_num)
     return labels, inputs, negative
 
 
@@ -115,26 +112,27 @@ def sample_walks(train_datasets, neg_num, batch_size, node_type, embed_size, cpu
     samples = []
     for idx in range(len(train_datasets)):
         dataset = train_datasets[idx]
-        res = pool.apply_async(sample_pairs ,(dataset, neg_num, batch_size, node_type, embed_size))
+        res = pool.apply_async(sample_pairs, (dataset, neg_num, batch_size, node_type, embed_size))
         results.append(res)
 
     for r in results:
         try:
             inputs, labels, neg_ = r.get(timeout=1800)
-            if len(inputs)> 0:
+            if len(inputs) > 0:
                 samples.append((inputs, labels, neg_))
         except mp.TimeoutError:
             continue
     # except KeyboardInterrupt:
     #     pool.close()
     #     raise ValueError('exit')
-    # except:        
+    # except:
     #     pool.close()
     #     return samples
 
     pool.close()
 
     return samples
+
 
 class SkipGramNeg(nn.Module):
     def __init__(self, vocab_size, emb_dim):
@@ -146,8 +144,6 @@ class SkipGramNeg(nn.Module):
         self.input_emb.reset_parameters()
         # initrange = (2.0 / (vocab_size + emb_dim)) ** 0.5  # Xavier init
         # self.input_emb.weight.data.uniform_(-initrange, initrange)
-
-
 
     def forward(self, target_input, context, neg):
         """
@@ -175,4 +171,3 @@ class SkipGramNeg(nn.Module):
 
     def predict(self, inputs):
         return self.input_emb(inputs)
-
