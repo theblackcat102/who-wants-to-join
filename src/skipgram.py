@@ -4,7 +4,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import multiprocessing as mp
-
+from tqdm import tqdm
 
 def data_to_networkx_(data):
     G = nx.DiGraph()
@@ -104,22 +104,28 @@ def sample_pairs(dataset, neg_num, batch_size, node_type, embed_size):
     return labels, inputs, negative
 
 
-def sample_walks(train_datasets, neg_num, batch_size, node_type, embed_size, cpu_count=4):
+def sample_walks(train_datasets, neg_num, batch_size, node_type, embed_size, cpu_count=6, parallel=False):
     pool = mp.Pool(processes=cpu_count)
     results = []
     samples = []
-    for idx in range(len(train_datasets)):
+    for idx in tqdm(range(len(train_datasets)), dynamic_ncols=True):
         dataset = train_datasets[idx]
-        res = pool.apply_async(sample_pairs, (dataset, neg_num, batch_size, node_type, embed_size))
-        results.append(res)
-
-    for r in results:
-        try:
-            inputs, labels, neg_ = r.get(timeout=1800)
-            if len(inputs) > 0:
+        if parallel:            
+            res = pool.apply_async(sample_pairs, (dataset, neg_num, batch_size, node_type, embed_size))
+            results.append(res)
+        else:
+            inputs, labels, neg_ = sample_pairs(dataset, neg_num, batch_size, node_type, embed_size)
+            if len(inputs)> 0:
                 samples.append((inputs, labels, neg_))
-        except mp.TimeoutError:
-            continue
+    if parallel:
+        for r in results:
+            try:
+                inputs, labels, neg_ = r.get(timeout=1800)
+                if len(inputs) > 0:
+                    samples.append((inputs, labels, neg_))
+            except mp.TimeoutError:
+                continue
+        pool.close()
     # except KeyboardInterrupt:
     #     pool.close()
     #     raise ValueError('exit')
@@ -127,7 +133,7 @@ def sample_walks(train_datasets, neg_num, batch_size, node_type, embed_size, cpu
     #     pool.close()
     #     return samples
 
-    pool.close()
+
 
     return samples
 

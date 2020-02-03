@@ -146,7 +146,7 @@ class GroupGCN():
                                  layers=args.layers,
                                  dropout=args.dropout)
         if args.pretrain:
-            model = self.pretrain_embeddings(model, 64, epoch_num=2)
+            model = self.pretrain_embeddings(model, 256, epoch_num=10)
 
         model = model.cuda()
 
@@ -239,7 +239,7 @@ class GroupGCN():
             self.writer.flush()
 
 
-    def pretrain_embeddings(self, model, batch_size, epoch_num=1):
+    def pretrain_embeddings(self, model, batch_size, epoch_num=1, neg_num=20):
         from torch.optim.lr_scheduler import StepLR
         import torch.optim as optim
         print('Pretrain embeddings')
@@ -253,7 +253,8 @@ class GroupGCN():
         embeddings = {}
         for node_type, (embed_size, dim) in node_types.items():
 
-            samples = sample_walks(self.train_dataset, 5, batch_size, node_type, embed_size)
+            samples = sample_walks(self.train_dataset, neg_num, batch_size, node_type, embed_size,
+                parallel=False)
 
             skip_model = SkipGramNeg(embed_size, dim)
             skip_model = skip_model.cuda()

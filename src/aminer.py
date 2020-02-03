@@ -399,6 +399,7 @@ class Aminer(Dataset):
         self.init_preprocessing()
         self.list_of_data = list(glob.glob(osp.join(self.processed_dir, match_filename)))
 
+
     def __len__(self):
         return len(self.processed_file_names)
 
@@ -448,6 +449,7 @@ class Aminer(Dataset):
 
         for res in results:
             res.get()
+        match_filename = self.cache_file_prefix+'_*_v2.pt'
         self.list_of_data = list(glob.glob(osp.join(self.processed_dir, match_filename)))
 
     def get(self, idx):
