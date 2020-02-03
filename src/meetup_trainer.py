@@ -65,14 +65,15 @@ class GroupGCN():
 
         self.args = args
 
-        self.log_path = osp.join(
-            "logs", "meetup",
-            args.dataset+'_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
         if args.writer is True:
-            self.writer = SummaryWriter(log_dir=self.log_path)
+            self.log_path = osp.join(
+                "logs", "meetup",
+                args.dataset+'_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
         else:
             shutil.rmtree(TMP_WRITER_PATH, ignore_errors=True)
-            self.writer = SummaryWriter(log_dir=TMP_WRITER_PATH)
+            self.log_path = TMP_WRITER_PATH
+        
+        self.writer = SummaryWriter(log_dir=self.log_path)
         self.save_path = osp.join(self.log_path, "models")
         os.makedirs(self.save_path, exist_ok=True)
         print('finish init')
@@ -93,8 +94,8 @@ class GroupGCN():
             y_target = torch.FloatTensor(B, user_size)
             for val_data in tqdm(dataloader, dynamic_ncols=True):
                 x, edge_index = val_data.x, val_data.edge_index
-                y = val_data.y
-                pred_mask = val_data.label_mask.cuda()
+                y = val_data.y.cpu()
+                pred_mask = val_data.label_mask.cpu()
                 pred = model(edge_index.cuda(), x.cuda())
                 pred = torch.sigmoid(pred).cpu()
                 # y = y[pred_mask]
@@ -305,6 +306,7 @@ class GroupGCN():
                 model.group_embeddings.weight.data = skip_model.input_emb.weight.data
         torch.save(embeddings, osp.join(self.save_path, 'embeddings.pt'))
         return model
+
 
 if __name__ == "__main__":
     import argparse
