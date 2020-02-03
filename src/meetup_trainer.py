@@ -3,6 +3,7 @@ from src.layers import StackedGCNMeetup
 from src.meetup import Meetup, locations_id, MEETUP_FOLDER
 from torch_geometric.data import DataLoader
 import random
+import shutil
 from tqdm import tqdm
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -10,8 +11,8 @@ import pickle
 import os
 import os.path as osp
 import numpy as np
-from src.skipgram import generate_batch, SkipGramNeg, data_to_networkx_, sample_walks
-from src.utils import dict2table, confusion, str2bool
+from src.skipgram import SkipGramNeg, sample_walks
+from src.utils import dict2table, confusion, str2bool, TMP_WRITER_PATH
 
 
 class GroupGCN():
@@ -24,17 +25,18 @@ class GroupGCN():
         if osp.exists(args.dataset+'_shuffle_idx.pkl'):
             with open(args.dataset+'_shuffle_idx.pkl', 'rb') as f:
                 shuffle_idx = pickle.load(f)
+            assert len(shuffle_idx) == len(dataset)
         else:
             shuffle_idx = [idx for idx in range(len(dataset))]
             random.shuffle(shuffle_idx)
             with open(args.dataset+'_shuffle_idx.pkl', 'wb') as f:
                 pickle.dump(shuffle_idx, f)
 
-        with open(os.path.join(MEETUP_FOLDER, 'topic2id.pkl'), 'rb') as f:
+        with open(osp.join(MEETUP_FOLDER, 'topic2id.pkl'), 'rb') as f:
             topic2id = pickle.load(f)
-        with open(os.path.join(MEETUP_FOLDER, 'cat2id.pkl'), 'rb') as f:
+        with open(osp.join(MEETUP_FOLDER, 'cat2id.pkl'), 'rb') as f:
             cat2id = pickle.load(f)
-        # with open(os.path.join(MEETUP_FOLDER, 'group2topic.pkl'), 'rb') as f:
+        # with open(osp.join(MEETUP_FOLDER, 'group2topic.pkl'), 'rb') as f:
         #     group2topic = pickle.load(f)
 
         self.category_size = len(cat2id)
@@ -66,8 +68,11 @@ class GroupGCN():
         self.log_path = osp.join(
             "logs", "meetup",
             args.dataset+'_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
-        self.writer = None
-        self.writer = SummaryWriter(log_dir=self.log_path)
+        if args.writer is True:
+            self.writer = SummaryWriter(log_dir=self.log_path)
+        else:
+            shutil.rmtree(TMP_WRITER_PATH, ignore_errors=True)
+            self.writer = SummaryWriter(log_dir=TMP_WRITER_PATH)
         self.save_path = osp.join(self.log_path, "models")
         os.makedirs(self.save_path, exist_ok=True)
         print('finish init')
@@ -170,8 +175,7 @@ class GroupGCN():
 
         n_iter = 0
         best_f1 = 0
-        if self.writer:
-            self.writer.add_text('Text', dict2table(vars(args)), 0)
+        self.writer.add_text('Text', dict2table(vars(args)), 0)
 
         with tqdm(total=len(train_loader)*epochs, dynamic_ncols=True) as pbar:
             for epoch in range(epochs):
@@ -189,15 +193,14 @@ class GroupGCN():
                     loss.backward()
 
                     optimizer.step()
-                    if self.writer:
-                        self.writer.add_scalar(
+                    self.writer.add_scalar(
                             "Train/BCEWithLogitsLoss", loss.item(), n_iter)
                     pbar.update(1)
                     pbar.set_description(
                         "loss {:.4f}, epoch {}".format(loss.item(), epoch))
                     n_iter += 1
 
-                if epoch % args.eval == 0 and self.writer:
+                if epoch % args.eval == 0:
                     print('Epoch: ', epoch)
                     f1, recalls, precisions = self.evaluate(valid_loader,
                                                             model)
@@ -213,9 +216,8 @@ class GroupGCN():
                             'optimizer': optimizer.state_dict(),
                             'f1': f1
                         }
-                    print(f1)
 
-                if epoch % args.save == 0 and self.writer:
+                if epoch % args.save == 0:
                     self.save_checkpoint({
                         'epoch': epoch+1,
                         'model': model.state_dict(),
@@ -225,22 +227,22 @@ class GroupGCN():
                         self.save_path,
                         "{}".format(epoch+1)
                     )
-        if self.writer:
-            print("Testing")
-            self.save_checkpoint(best_checkpoint,
-                                self.save_path,
-                                "best")
-            model.load_state_dict(best_checkpoint["model"])
-            f1, recalls, precisions = self.evaluate(test_loader, model)
-            
-            self.writer.add_scalar("Test/F1", f1, n_iter)
-            self.writer.add_scalar("Test/Recalls", recalls, n_iter)
-            self.writer.add_scalar("Test/Precisions", precisions, n_iter)
-            self.writer.flush()
+        print("Testing")
+        self.save_checkpoint(best_checkpoint, self.save_path, "best")
+        model.load_state_dict(best_checkpoint["model"])
+        f1, recalls, precisions = self.evaluate(test_loader, model)
 
+        self.writer.add_scalar("Test/F1", f1, n_iter)
+        self.writer.add_scalar("Test/Recalls", recalls, n_iter)
+        self.writer.add_scalar("Test/Precisions", precisions, n_iter)
+        self.writer.flush()
+
+        # clean tmp_writer
+        if args.writer is False:
+            shutil.rmtree(TMP_WRITER_PATH, ignore_errors=True)
 
     def pretrain_embeddings(self, model, batch_size, epoch_num=1, neg_num=20):
-        from torch.optim.lr_scheduler import StepLR
+        # from torch.optim.lr_scheduler import StepLR
         import torch.optim as optim
         print('Pretrain embeddings')
         node_types = {
@@ -249,36 +251,40 @@ class GroupGCN():
             2: model.category_size,
             4: model.group_size,
         }
-        print(self.writer)
         embeddings = {}
         for node_type, (embed_size, dim) in node_types.items():
 
-            samples = sample_walks(self.train_dataset, neg_num, batch_size, node_type, embed_size,
-                parallel=False)
+            samples = sample_walks(self.train_dataset, neg_num, batch_size,
+                                   node_type, embed_size, parallel=True)
 
             skip_model = SkipGramNeg(embed_size, dim)
             skip_model = skip_model.cuda()
-            optimizer = optim.SGD(skip_model.parameters(), lr=1e-5, weight_decay=1e-9)
+            optimizer = optim.SGD(skip_model.parameters(), lr=1e-5,
+                                  weight_decay=1e-9)
             iteration = list(range(len(self.train_dataset)))
             total_idx = 0
             print('sampling')
-            torch.save({'samples' : samples}, os.path.join(self.save_path, 'random_walk_{}.pt'.format(node_type)))
+            torch.save({'samples': samples},
+                       osp.join(self.save_path,
+                                'random_walk_{}.pt'.format(node_type)))
             with tqdm(total=len(iteration)*epoch_num) as pbar:
                 for e in range(epoch_num):
                     random.shuffle(samples)
                     for idx, sample in enumerate(samples):
                         context, target, negative = sample
-                        context = torch.from_numpy(context).to(dtype=torch.long).cuda()
-                        target = torch.from_numpy(target).to(dtype=torch.long).cuda()
-                        negative = torch.from_numpy(negative).to(dtype=torch.long).cuda()
+                        context = torch.from_numpy(context).long().cuda()
+                        target = torch.from_numpy(target).long().cuda()
+                        negative = torch.from_numpy(negative).long().cuda()
                         loss = skip_model(target, context, negative)
 
                         loss.backward()
                         optimizer.step()
                         pbar.set_description(
-                            "loss {:.4f}, iter {}".format(loss.item(), total_idx))
-                        if self.writer != None:
-                            self.writer.add_scalar('Skipgram/loss/%d' % node_type, loss.item(), total_idx)
+                            "loss {:.4f}, iter {}".format(
+                                loss.item(), total_idx))
+                        self.writer.add_scalar('Skipgram/loss/%d' % node_type,
+                                               loss.item(),
+                                               total_idx)
                         total_idx += 1
                         pbar.update(1)
             if total_idx == 0:
@@ -297,7 +303,7 @@ class GroupGCN():
             elif node_type == 4:
                 print('transfer group embeddings')
                 model.group_embeddings.weight.data = skip_model.input_emb.weight.data
-        torch.save(embeddings, os.path.join(self.save_path, 'embeddings.pt'))
+        torch.save(embeddings, osp.join(self.save_path, 'embeddings.pt'))
         return model
 
 if __name__ == "__main__":
@@ -323,6 +329,8 @@ if __name__ == "__main__":
     parser.add_argument('--input-dim', type=int, default=8)
     parser.add_argument('--dropout', type=float, default=0.1)
     parser.add_argument('--layers', nargs='+', type=int, default=[8, 8, 8])
+    # debug
+    parser.add_argument('--writer', type=str2bool, nargs='?', default=True)
 
     args = parser.parse_args()
 

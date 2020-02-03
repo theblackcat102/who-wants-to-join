@@ -1,5 +1,6 @@
 import os.path as osp
-import os, glob
+import os
+import glob
 from copy import deepcopy
 import pickle
 from collections import defaultdict
@@ -48,7 +49,7 @@ def build_initial_graph(city_id=10001, min_size=5, max_size=500, cutoff=2,
     df = df[df['group_id'].isin(valid_group_id)]
     print('Build member mapping')
     group_map_name = '%d_%d_%d_%d_group_mapping.pkl' % (city_id, min_size,
-                                                     max_size, min_freq)
+                                                        max_size, min_freq)
 
     if not osp.exists(osp.join(MEETUP_FOLDER, group_map_name)):
         group_mappings = defaultdict(list)
@@ -62,8 +63,8 @@ def build_initial_graph(city_id=10001, min_size=5, max_size=500, cutoff=2,
         for m, freq in member_frequecies.items():
             if freq >= min_freq:
                 valid_members.append(m)
-        print("filter member < %d"% min_freq)
-        new_group = defaultdict(list)  
+        print("filter member < %d" % min_freq)
+        new_group = defaultdict(list)
         valid_members = set(valid_members)
         for group_id, members in group_mappings.items():
             for m in members:
@@ -80,12 +81,11 @@ def build_initial_graph(city_id=10001, min_size=5, max_size=500, cutoff=2,
         print("Init {} Group found".format(len(group_mappings)))
         with open(osp.join(MEETUP_FOLDER, group_map_name), 'wb') as f:
             pickle.dump(group_mappings, f)
-        with open(os.path.join(MEETUP_FOLDER, valid_group_members_name), 'wb') as f:
-            pickle.dump({'valid': valid_members}, f)
     else:
         with open(osp.join(MEETUP_FOLDER, group_map_name), 'rb') as f:
             group_mappings = pickle.load(f)
-    user2id_name = '%d_%d_%d_%d_user2id.pkl' % (city_id, min_size, max_size, min_freq)
+    user2id_name = '%d_%d_%d_%d_user2id.pkl' % (city_id, min_size, max_size,
+                                                min_freq)
     if not osp.exists(osp.join(MEETUP_FOLDER, user2id_name)):
         user2id = defaultdict(int)
         for _, members in group_mappings.items():
@@ -294,20 +294,21 @@ def async_graph_save(group, group_mappings, ratio, cutoff, G, user2id,
     del G
 
 
-
 def convertmemberattributes(city_id, min_size, max_size, node_min_freq=3):
     df = pd.read_csv(MEETUP_MEMBER, encoding='latin-1')
-    user2id_name = '%d_%d_%d_%d_user2id.pkl' % (city_id, min_size, max_size, node_min_freq)
+    user2id_name = '%d_%d_%d_%d_user2id.pkl' % (city_id, min_size, max_size,
+                                                node_min_freq)
     with open(os.path.join(MEETUP_FOLDER, user2id_name), 'rb') as f:
         user2id = pickle.load(f)
 
     df['member_id'] = df['member_id'].map(user2id)
     print(df.columns)
-    df = df.drop(['group_id', 'member_name','bio', 'link','joined', 'country'], axis=1)
+    df = df.drop(['group_id', 'member_name', 'bio', 'link', 'joined',
+                  'country'], axis=1)
     print(df.head(100))
 
-class Meetup(Dataset):
 
+class Meetup(Dataset):
     def __init__(self, cutoff=2, ratio=0.8, min_size=5, max_size=100,
                  city_id=10001, min_freq=3):
         self.cutoff = cutoff
@@ -318,7 +319,8 @@ class Meetup(Dataset):
         self.city_id = city_id
         self.min_freq = min_freq
         self.cache_file_prefix = '{}_{}_{}_{}_{}_{}'.format(
-            'meetups', self.city_id, self.cutoff, self.ratio, self.min_size, self.min_freq)
+            'meetups', self.city_id, self.cutoff, self.ratio, self.min_size,
+            self.min_freq)
         user2id_name = '%d_%d_%d_%d_user2id.pkl' % (
             self.city_id, self.min_size, self.max_size, self.min_freq)
         if osp.exists(osp.join(MEETUP_FOLDER, user2id_name)):
@@ -331,10 +333,12 @@ class Meetup(Dataset):
             with open(osp.join(MEETUP_FOLDER, group2id_name), 'rb') as f:
                 self.group2id = pickle.load(f)
         match_filename = self.cache_file_prefix + '_*_v2.pt'
-        self.processed_dir = osp.join(osp.join("processed", str(self.city_id)), 'processed')
-        self.processed_file_idx = list(glob.glob(osp.join(self.processed_dir, match_filename)))
+        self.processed_dir = osp.join("processed", str(self.city_id),
+                                      'processed')
+        self.processed_file_idx = list(glob.glob(osp.join(self.processed_dir,
+                                                          match_filename)))
 
-        super(Meetup, self).__init__(osp.join("processed", str(city_id)),  
+        super(Meetup, self).__init__(osp.join("processed", str(city_id)),
                                      transform=None,
                                      pre_transform=None)
         if len(self.processed_file_idx) == 0:
@@ -352,7 +356,6 @@ class Meetup(Dataset):
         return ['some_file_1']
 
     def process(self):
-        length = 0
         if len(self.processed_file_idx) != 0:
             return
 
@@ -400,7 +403,8 @@ class Meetup(Dataset):
         with open(osp.join(MEETUP_FOLDER, group2id_name), 'rb') as f:
             group2id = pickle.load(f)
 
-        user2id_name = '%d_%d_%d_%d_user2id.pkl' % (self.city_id, self.min_size, self.max_size, self.min_freq)
+        user2id_name = '%d_%d_%d_%d_user2id.pkl' % (
+            self.city_id, self.min_size, self.max_size, self.min_freq)
         if not osp.exists(osp.join(MEETUP_FOLDER, user2id_name)):
             user2id = defaultdict(int)
             for _, members in group_mappings.items():
@@ -409,7 +413,6 @@ class Meetup(Dataset):
                         user2id[m] = len(user2id)
             with open(osp.join(MEETUP_FOLDER, user2id_name), 'wb') as f:
                 pickle.dump(user2id, f)
-            
         else:
             with open(osp.join(MEETUP_FOLDER, user2id_name), 'rb') as f:
                 user2id = pickle.load(f)
@@ -419,12 +422,21 @@ class Meetup(Dataset):
         # sub_groups = []
         file_idx = 0
 
-        # print(osp.join(MEETUP_FOLDER, user2id_name))
+        # check cat2id, topic2id, group2topic, member2topic
+        for feature in ['cat2id', 'topic2id', 'group2topic', 'member2topic']:
+            if not osp.exists(osp.join(MEETUP_FOLDER, feature+'.pkl')):
+                if feature == 'cat2id':
+                    save_category_id()
+                if feature == 'topic2id':
+                    save_topic_id()
+                if feature == 'group2topic':
+                    save_group2topic()
+                if feature == 'member2topic':
+                    save_member2topic()
         with open(osp.join(MEETUP_FOLDER, 'cat2id.pkl'), 'rb') as f:
             cat2id = pickle.load(f)
         with open(osp.join(MEETUP_FOLDER, 'topic2id.pkl'), 'rb') as f:
             topic2id = pickle.load(f)
-
         with open(osp.join(MEETUP_FOLDER, 'group2topic.pkl'), 'rb') as f:
             group2topic = pickle.load(f)
         with open(osp.join(MEETUP_FOLDER, 'member2topic.pkl'), 'rb') as f:
@@ -435,8 +447,9 @@ class Meetup(Dataset):
         print('total users ', len(user2id))
 
         filename_prefix = self.cache_file_prefix
-        # processed_dir = self.processed_dir
 
+        # make dir for torch.save
+        os.makedirs(self.processed_dir)
         pool = mp.Pool(processes=8)
         results = []
         for group_idx, group in tqdm(enumerate(second_half_group),
@@ -479,10 +492,11 @@ class Meetup(Dataset):
         pool.close()
         pool.join()
 
-        match_filename = self.cache_file_prefix +'_*_v2.pt'
-        self.processed_dir = osp.join(osp.join("processed", str(self.city_id)), 'processed')
-        self.processed_file_idx = list(glob.glob(osp.join(self.processed_dir, match_filename)))
-
+        match_filename = self.cache_file_prefix + '_*_v2.pt'
+        self.processed_dir = osp.join("processed", str(self.city_id),
+                                      'processed')
+        self.processed_file_idx = list(glob.glob(osp.join(self.processed_dir,
+                                                          match_filename)))
 
     def __len__(self):
         return len(self.processed_file_idx)
@@ -490,7 +504,8 @@ class Meetup(Dataset):
     def get(self, idx):
         if isinstance(idx, list):
             new_ = deepcopy(self)
-            new_.processed_file_idx = list(np.array(self.processed_file_idx)[idx])
+            new_.processed_file_idx = list(
+                np.array(self.processed_file_idx)[idx])
             return new_
 
         filename = self.processed_file_idx[idx]
@@ -499,12 +514,12 @@ class Meetup(Dataset):
 
 
 if __name__ == "__main__":
-    from src.layers import StackedGCNMeetup
-    # save_category_id()
-    # save_topic_id()
-    # save_member2topic()
-    # save_group2topic()
-    # build_initial_graph()
+    # from src.layers import StackedGCNMeetup
+    save_category_id()
+    save_topic_id()
+    save_member2topic()
+    save_group2topic()
+    build_initial_graph()
     import argparse
     parser = argparse.ArgumentParser(
         description='Deepset Recommendation Model')
@@ -514,7 +529,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     dataset = Meetup(city_id=locations_id[args.dataset])
     print(len(dataset))
-    subset = dataset[[1,2,3,4]]
+    subset = dataset[[1, 2, 3, 4]]
     print(dataset[5])
 
     # with open('cache.pkl', 'rb') as f:

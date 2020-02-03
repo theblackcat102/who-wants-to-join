@@ -2,6 +2,10 @@ from tqdm import tqdm
 import torch
 import argparse
 
+
+TMP_WRITER_PATH = "tmp_writer"
+
+
 def confusion(prediction, truth):
     """ Returns the confusion matrix for the values in the `prediction` and
         `truth` tensors, i.e. the amount of positions where the values of
@@ -24,8 +28,9 @@ def confusion(prediction, truth):
     false_positives = torch.sum(confusion_vector == float('inf')).item()
     true_negatives = torch.sum(torch.isnan(confusion_vector)).item()
     false_negatives = torch.sum(confusion_vector == 0).item()
-
     return true_positives, false_positives, true_negatives, false_negatives
+
+
 def dict2table(params):
     if not isinstance(params, dict):
         params = vars(params)
@@ -35,6 +40,7 @@ def dict2table(params):
         text += '\n|{:13}|{:14}|'.format(str(key), str(value))
     return text
 
+
 def pbar_listener(q, total_size):
     pbar = tqdm(total=total_size)
     while True:
@@ -42,6 +48,7 @@ def pbar_listener(q, total_size):
         if item is None:
             break
         pbar.update(item)
+
 
 def str2bool(v):
     if isinstance(v, bool):
