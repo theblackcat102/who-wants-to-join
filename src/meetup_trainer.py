@@ -72,7 +72,7 @@ class GroupGCN():
         else:
             shutil.rmtree(TMP_WRITER_PATH, ignore_errors=True)
             self.log_path = TMP_WRITER_PATH
-        
+
         self.writer = SummaryWriter(log_dir=self.log_path)
         self.save_path = osp.join(self.log_path, "models")
         os.makedirs(self.save_path, exist_ok=True)

@@ -4,7 +4,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import multiprocessing as mp
-from tqdm import tqdm
+from src.utils import pbar_listener
+
 
 def data_to_networkx_(data):
     G = nx.DiGraph()
@@ -97,43 +98,107 @@ def generate_batch(G, batch_size, node_type, embedding_size, neg_num=2):
     return [], [], []
 
 
-def sample_pairs(dataset, neg_num, batch_size, node_type, embed_size):
-    sub_G = data_to_networkx_(dataset)
-    inputs, labels, negative = generate_batch(
-        sub_G, batch_size, node_type, embed_size, neg_num=neg_num)
-    return labels, inputs, negative
+def sample_pairs(datasets, neg_num, batch_size, node_type, embed_size):
+    labels_list = []
+    inputs_list = []
+    neg__list = []
+    for dataset in datasets:
+        sub_G = data_to_networkx_(dataset)
+        inputs, labels, neg_ = generate_batch(
+            sub_G, batch_size, node_type, embed_size, neg_num=neg_num)
+        labels_list.append(inputs)
+        inputs_list.append(labels)
+        neg__list.append(neg_)
+    return labels_list, inputs_list, neg__list
 
 
-def sample_walks(train_datasets, neg_num, batch_size, node_type, embed_size, cpu_count=6, parallel=False):
+def sample_pairs_parallel(datasets, neg_num, batch_size, node_type, embed_size,
+                          pbar_queue):
+    labels_list = []
+    inputs_list = []
+    neg__list = []
+    for dataset in datasets:
+        sub_G = data_to_networkx_(dataset)
+        inputs, labels, neg_ = generate_batch(
+            sub_G, batch_size, node_type, embed_size, neg_num=neg_num)
+        labels_list.append(inputs)
+        inputs_list.append(labels)
+        neg__list.append(neg_)
+    pbar_queue.put(len(datasets))
+    return labels_list, inputs_list, neg__list
+
+
+def sample_walks(train_datasets, neg_num, batch_size, node_type, embed_size,
+                 cpu_count=11, parallel=False):
     pool = mp.Pool(processes=cpu_count)
     results = []
     samples = []
-    for idx in tqdm(range(len(train_datasets)), dynamic_ncols=True):
-        dataset = train_datasets[idx]
-        if parallel:            
-            res = pool.apply_async(sample_pairs, (dataset, neg_num, batch_size, node_type, embed_size))
+    iter_steps = 10
+    iter_i = 0
+
+    manager = mp.Manager()
+    pbar_queue = manager.Queue()
+    pbar_proc = mp.Process(target=pbar_listener,
+                           args=[pbar_queue, len(train_datasets), ])
+    pbar_proc.start()
+
+    for i in range(len(train_datasets)//iter_steps+1):
+        datasets = []
+        for idx in range(iter_i, iter_i+iter_steps):
+            if idx >= len(train_datasets):
+                break
+            datasets.append(train_datasets[idx])
+        iter_i += iter_steps
+        if parallel:
+            res = pool.apply_async(
+                sample_pairs_parallel, (datasets, neg_num, batch_size,
+                                        node_type, embed_size, pbar_queue))
             results.append(res)
         else:
-            inputs, labels, neg_ = sample_pairs(dataset, neg_num, batch_size, node_type, embed_size)
-            if len(inputs)> 0:
-                samples.append((inputs, labels, neg_))
+            inputs_list, labels_list, neg__list = sample_pairs(
+                datasets, neg_num, batch_size, node_type, embed_size)
+            pbar_queue.put(len(datasets))
+            for inputs, labels, neg_ in zip(inputs_list, labels_list,
+                                            neg__list):
+                if len(inputs) > 0:
+                    samples.append((inputs, labels, neg_))
     if parallel:
         for r in results:
             try:
-                inputs, labels, neg_ = r.get(timeout=1800)
-                if len(inputs) > 0:
-                    samples.append((inputs, labels, neg_))
+                inputs_list, labels_list, neg__list = r.get(timeout=1800)
+                for inputs, labels, neg_ in zip(inputs_list, labels_list,
+                                                neg__list):
+                    if len(inputs) > 0:
+                        samples.append((inputs, labels, neg_))
             except mp.TimeoutError:
                 continue
         pool.close()
+    pbar_queue.put(None)
+    pbar_proc.join()
+    # for idx in tqdm(range(len(train_datasets)), dynamic_ncols=True):
+    #     dataset = train_datasets[idx]
+    #     if parallel:
+    #         res = pool.apply_async(sample_pairs, (dataset, neg_num, batch_size, node_type, embed_size))
+    #         results.append(res)
+    #     else:
+    #         inputs, labels, neg_ = sample_pairs(dataset, neg_num, batch_size, node_type, embed_size)
+    #         if len(inputs) > 0:
+    #             samples.append((inputs, labels, neg_))
+    # if parallel:
+    #     for r in results:
+    #         try:
+    #             inputs, labels, neg_ = r.get(timeout=1800)
+    #             if len(inputs) > 0:
+    #                 samples.append((inputs, labels, neg_))
+    #         except mp.TimeoutError:
+    #             continue
+    #     pool.close()
     # except KeyboardInterrupt:
     #     pool.close()
     #     raise ValueError('exit')
     # except:
     #     pool.close()
     #     return samples
-
-
 
     return samples
 

@@ -9,10 +9,10 @@ import multiprocessing as mp
 from tqdm import tqdm
 import numpy as np
 import networkx as nx
-from sklearn.metrics import f1_score
 import torch
 from torch.autograd import Variable
-from torch_geometric.data import Dataset, Data, DataLoader
+from torch_geometric.data import Dataset, Data
+from src.utils import pbar_listener
 
 
 def split_group(group_id, members, G, exist_ratio, cutoff):
@@ -49,7 +49,7 @@ def split_group(group_id, members, G, exist_ratio, cutoff):
             predict = 1
         in_group_cnt += in_group
         sub_G.add_node(node, in_group=in_group, predict=predict,
-                        known_member=known_member)
+                       known_member=known_member)
 
     for node in sub_graph_nodes:
         for n in G.neighbors(node):
@@ -57,10 +57,12 @@ def split_group(group_id, members, G, exist_ratio, cutoff):
                 sub_G.add_edge(node, int(n))
     return sub_G
 
+
 def chunks(data, size=10000):
     it = iter(data)
     for i in range(0, len(data), size):
         yield {k: data[k] for k in islice(it, size)}
+
 
 def graph2data(G, name2id, node_attr, cat2id):
     graph_idx = {}
@@ -76,8 +78,8 @@ def graph2data(G, name2id, node_attr, cat2id):
         node_latent = None
         if str(n) in name2id:
             node_latent = Variable(
-                torch.from_numpy(
-                    np.array([name2id[str(n)], G.nodes[n]['known_member'], 0])))
+                torch.from_numpy(np.array([name2id[str(n)],
+                                 G.nodes[n]['known_member'], 0])))
         else:
             print(str(n))
             continue
@@ -93,7 +95,7 @@ def graph2data(G, name2id, node_attr, cat2id):
         nodes.append(node_latent)
         labels.append(G.nodes[n]['predict'])
         label_mask.append(1)
-    
+
     for n in G.nodes:
         if n in node_attr:
             attributes = node_attr[n]
@@ -103,12 +105,13 @@ def graph2data(G, name2id, node_attr, cat2id):
                 cat_name = 'cat'+str(cat)
                 if cat_name not in graph_idx:
                     graph_idx[cat_name] = len(graph_idx)
-                    node_latent = Variable(torch.from_numpy(np.array([cat2id[cat], -1, 1])))
+                    node_latent = Variable(
+                        torch.from_numpy(np.array([cat2id[cat], -1, 1])))
                     nodes.append(node_latent)
                     labels.append(0)
                     label_mask.append(0)
-                edges.append([[ graph_idx[cat_name], graph_idx[n] ],
-                    [ graph_idx[n], graph_idx[cat_name] ]])
+                edges.append([[graph_idx[cat_name], graph_idx[n]],
+                              [graph_idx[n], graph_idx[cat_name]]])
 
     if len(nodes) == 0:
         raise ValueError('Invalid graph node')
@@ -126,7 +129,7 @@ def create_sub_graph(G, group2member, user2id, pbar_queue,
                      pre_filter=None, pre_transform=None):
     idx = startidx
     filename_prefix = '{}_{}_{}_{}_hete'.format(dataset, cutoff, exist_ratio,
-                                           min_size)
+                                                min_size)
     for group_id, members in group2member.items():
         random.shuffle(members)
         ratio_ = int(len(members)*exist_ratio)
@@ -194,13 +197,13 @@ def load_amazon_meta():
 
         while idx < len(lines):
             line = lines[idx]
-            if ('Id:' in line and 'title' not in line )or 'discontinued' in line:
+            if ('Id:' in line and 'title' not in line) or 'discontinued' in line:
                 if len(object_attr) > 2:
                     amazon_node.append(object_attr)
                     object_attr = {}
                 if 'Id:' in line:
                     try:
-                        object_attr = {'id': int(line.strip().split(':')[-1].strip()) }
+                        object_attr = {'id': int(line.strip().split(':')[-1].strip())}
                     except:
                         print(line)
 
@@ -252,7 +255,6 @@ def load_amazon_meta():
     print('saved meta data')
 
 
-
 class AmazonCommunity(Dataset):
     def __init__(self, cutoff=2, ratio=0.8, min_size=5,
                  max_size=500):
@@ -263,7 +265,6 @@ class AmazonCommunity(Dataset):
         self.min_size = min_size
         self.max_size = max_size
         self.group_size = 0
-
 
         dataset_path = osp.join("data", dataset)
         postfix = ""
@@ -318,8 +319,8 @@ class AmazonCommunity(Dataset):
         self.processed_file_idx = [idx for idx in range(self.group_size)]
 
         super(AmazonCommunity, self).__init__(osp.join("processed", dataset+'_hete'),
-                                            transform=None,
-                                            pre_transform=None)
+                                              transform=None,
+                                              pre_transform=None)
         # self.process()
         # self.data, self.slices = torch.load(self.processed_paths[0])
 
@@ -427,25 +428,16 @@ class AmazonCommunity(Dataset):
         manager = mp.Manager()
 
         # one progressbar for multiprocessing
-        def pbar_listener(q, total_size):
-            pbar = tqdm(total=total_size)
-            while True:
-                item = q.get()
-                if item is None:
-                    break
-                pbar.update(item)
-
         pbar_queue = manager.Queue()
         pbar_proc = mp.Process(target=pbar_listener,
                                args=[pbar_queue, len(group2member), ])
         pbar_proc.start()
         # chunkize to cpu_count()*5 for better load balance
-        total_cpu = 4 #mp.cpu_count()
+        total_cpu = 4  # mp.cpu_count()
         chunk_size = len(group2member)//total_cpu//5
         pool = mp.Pool(processes=total_cpu)
-        results = []
         for sub_group2member in chunks(group2member, chunk_size):
-            args = [G, sub_group2member, user2id, pbar_queue, node_attr, cat2id ]
+            args = [G, sub_group2member, user2id, pbar_queue, node_attr, cat2id]
             kwds = {
                 'processed_dir': self.processed_dir, 'dataset': self.dataset,
                 'startidx': idx, 'exist_ratio': self.ratio,
@@ -479,10 +471,10 @@ class AmazonCommunity(Dataset):
 
 
 if __name__ == "__main__":
-    import torch.nn.functional as F
-    from torch_geometric.nn import GCNConv
-    import torch.nn as nn
-    from src.layers import StackedGCNAmazon
+    # import torch.nn.functional as F
+    # from torch_geometric.nn import GCNConv
+    # import torch.nn as nn
+    # from src.layers import StackedGCNAmazon
     load_amazon_meta()
     # layer = GCNConv(64, 1)
     dataset = AmazonCommunity()
