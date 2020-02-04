@@ -29,7 +29,7 @@ class GroupGCN():
             assert len(shuffle_idx) == len(dataset)
         else:
             shuffle_idx = [idx for idx in range(len(dataset))]
-            split_pos = int(len(dataset)*0.7)
+
             train_idx = shuffle_idx[:split_pos]
             random.shuffle(train_idx)
             shuffle_idx[:split_pos] = train_idx
@@ -44,7 +44,7 @@ class GroupGCN():
         # with open(osp.join(MEETUP_FOLDER, 'group2topic.pkl'), 'rb') as f:
         #     group2topic = pickle.load(f)
 
-        self.category_size = len(cat2id)
+        self.category_size = 40
         self.topic_size = len(topic2id)
         self.group_size = len(dataset.group2id)
         del cat2id
@@ -52,7 +52,7 @@ class GroupGCN():
 
         dataset = dataset[shuffle_idx]
 
-
+        split_pos = int(len(dataset)*0.7)
         train_idx = shuffle_idx[:split_pos]
         valid_idx_ = shuffle_idx[split_pos:]
         test_pos = int(len(valid_idx_)*0.333)
