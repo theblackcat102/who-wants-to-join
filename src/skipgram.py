@@ -97,6 +97,16 @@ def generate_batch(G, batch_size, node_type, embedding_size, neg_num=2):
         return batch_inputs[shuffle_idx], batch_labels[shuffle_idx], batch_negative_samples[shuffle_idx]
     return [], [], []
 
+def generate_batch_(data, node_type, embedding_size, neg_num=2):
+    batch_cnt = 0
+    batch_labels, batch_inputs, batch_negative_samples = [], [], []
+    for cnt in range(100):
+        start_idxs = (data.x[:, 2] == node_type).nonzero().flatten()
+        for start_idx in start_idxs.chunk(5, 0):
+            walks = random_walk(data.edge_index[1, :], data.edge_index[0, :], start_idx, walk_length=3)
+
+
+
 
 def sample_pairs(datasets, neg_num, batch_size, node_type, embed_size):
     labels_list = []
@@ -126,6 +136,7 @@ def sample_pairs_parallel(datasets, neg_num, batch_size, node_type, embed_size,
         neg__list.append(neg_)
     pbar_queue.put(len(datasets))
     return labels_list, inputs_list, neg__list
+
 
 
 def sample_walks(train_datasets, neg_num, batch_size, node_type, embed_size,
@@ -240,3 +251,35 @@ class SkipGramNeg(nn.Module):
 
     def predict(self, inputs):
         return self.input_emb(inputs)
+
+
+if __name__ == "__main__":
+    from torch_cluster import random_walk
+
+    data = torch.load('processed/94101/processed/meetups_94101_2_0.8_5_3_1_v2.pt')
+    node_type = 2
+    nodes = data.x[data.x[:, 2] == node_type]
+
+    start = (data.x[:, 2] == node_type).nonzero().flatten()
+    print(data.edge_index.shape)
+    print(data.edge_index[:, :100])
+
+    print(start)
+    # src = torch.cat((data.edge_index[1, :], data.edge_index[0, :]))
+    # dst = torch.cat((data.edge_index[0, :], data.edge_index[1, :]))
+    print(start[0])
+    # print(dst[torch.where(src == start[0])])
+    # print(start[0] in src)
+    chunk_size = len(start) // 10
+    if len(start) > 1:
+        for idx, s in enumerate(start.chunk(int(chunk_size), 0)):
+            print('find :', idx)
+            src = data.edge_index[1, :].cpu()
+            dst = data.edge_index[0, :].cpu()
+            walks = random_walk(src, dst, s, walk_length=3)
+            for idx, walk in enumerate(walks):
+                target_pairs = np.intersect1d(walk[1:], start)
+                if len(target_pairs) > 0:
+                    if data.x[target_pairs[0]][0] != data.x[start[idx]][0]:
+                        print(data.x[target_pairs[0]], data.x[start[idx]])
+                        # print(np.intersect1d(walk[1:], start), start[idx])

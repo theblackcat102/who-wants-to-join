@@ -313,8 +313,15 @@ def graph2data(G, titleid):
         new_edges = []
         for idx in range(len(edge_index)):
             src, dst = edge_index[idx]
-            new_edges.append([graph_idx[dst], graph_idx[src]])
+            # ignore link paper and predict author
+            # if G.nodes[src]['known'] and G.nodes[src]['predict'] == 1 and G.nodes[dst]['type'] == 'p':
+            #     continue
+            # else:
             new_edges.append([graph_idx[src], graph_idx[dst]])
+
+            # bidirected with authors
+            if G.nodes[src]['type'] == 'a' and G.nodes[dst]['type'] == 'a':
+                new_edges.append([graph_idx[dst], graph_idx[src]])
 
         edges.append(new_edges)
         nodes.append(node_latent)
@@ -337,7 +344,7 @@ def graph2data(G, titleid):
 
 
 def async_postprocessing(paper, H, idx, processed_dir, cache_file_prefix, cutoff=2):
-    sub_G, hit, pred_cnt = create_subgraph(paper, H, cutoff=2)
+    sub_G, hit, pred_cnt = create_subgraph(paper, H, cutoff=cutoff)
     if sub_G is None:
         return None
     if idx < 100: # debug purpose make sure sub_G nodes number differ each iteration
@@ -463,5 +470,5 @@ class Aminer(Dataset):
 
 
 if __name__ == "__main__":
-    init_dblp()
+    # init_dblp()
     Aminer()

@@ -220,8 +220,9 @@ def graph2data(G, name2id, member2topic, group2topic, category2id, group2id,
                 t_id = 't'+str(t)
                 if t_id not in graph_idx:
                     graph_idx[t_id] = len(graph_idx)
+                # no need to change topic2id
                 nodes.append(torch.from_numpy(
-                    np.array([topic2id[t], -1, 1])))
+                    np.array([t, -1, 1])))
                 loss_mask.append(0)
                 labels.append(0)
                 edges.append([[graph_idx[t_id], graph_idx[n]]])
@@ -251,9 +252,10 @@ def graph2data(G, name2id, member2topic, group2topic, category2id, group2id,
     if G.graph['category_id'] in category2id:
         cat_name = 'c'+str(category2id[G.graph['category_id']])
         graph_idx[cat_name] = len(graph_idx)
+        # no need category2id
         nodes.append(
             torch.from_numpy(
-                np.array([category2id[G.graph['category_id']], -1, 2])))
+                np.array([G.graph['category_id'], -1, 2])))
         loss_mask.append(0)
         labels.append(0)
         new_edges.append([graph_idx[cat_name], graph_idx[group_name]])
@@ -449,7 +451,7 @@ class Meetup(Dataset):
         filename_prefix = self.cache_file_prefix
 
         # make dir for torch.save
-        os.makedirs(self.processed_dir)
+        os.makedirs(self.processed_dir, exist_ok=True)
         pool = mp.Pool(processes=8)
         results = []
         for group_idx, group in tqdm(enumerate(second_half_group),

@@ -26,7 +26,11 @@ class GroupGCN():
                 shuffle_idx = pickle.load(f)
         else:
             shuffle_idx = [idx for idx in range(len(dataset))]
-            random.shuffle(shuffle_idx)
+            split_pos = int(len(dataset)*0.7)
+            train_idx = shuffle_idx[:split_pos]
+            random.shuffle(train_idx)
+            shuffle_idx[:split_pos] = train_idx
+            print(shuffle_idx[split_pos: split_pos+10])
             with open('dblp_hete_shuffle_idx.pkl', 'wb') as f:
                 pickle.dump(shuffle_idx, f)
 
@@ -98,6 +102,8 @@ class GroupGCN():
         return f1, avg_recalls, avg_precisions
 
     def train(self, epochs=200):
+        from torch.optim.lr_scheduler import ReduceLROnPlateau
+
         args = self.args
         train_size = len(self.train_dataset.processed_file_idx)
         val_size = len(self.valid_dataset.processed_file_idx)
@@ -139,6 +145,7 @@ class GroupGCN():
             weight = args.pos_weight
         optimizer = torch.optim.Adam(
             model.parameters(), lr=args.lr, weight_decay=5e-4)
+        scheduler = ReduceLROnPlateau(optimizer, 'max')
         print('weight : ', weight)
         pos_weight = torch.ones([1])*weight
         pos_weight = pos_weight.cuda()
@@ -175,6 +182,7 @@ class GroupGCN():
                     print('Epoch: ', epoch)
                     f1, recalls, precisions = self.evaluate(valid_loader,
                                                             model)
+                    scheduler.step(f1)
                     self.writer.add_scalar("Valid/F1", f1, n_iter)
                     self.writer.add_scalar("Valid/Recalls", recalls, n_iter)
                     self.writer.add_scalar("Valid/Precisions", precisions,
@@ -212,7 +220,6 @@ class GroupGCN():
         self.writer.flush()
 
     def pretrain_embeddings(self, model, batch_size, epoch_num=1, neg_num=20):
-        from torch.optim.lr_scheduler import StepLR
         import torch.optim as optim
         print('Pretrain embeddings')
         node_types = {
