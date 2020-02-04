@@ -140,11 +140,11 @@ def sample_pairs_parallel(datasets, neg_num, batch_size, node_type, embed_size,
 
 
 def sample_walks(train_datasets, neg_num, batch_size, node_type, embed_size,
-                 cpu_count=11, parallel=False):
+                 cpu_count=6, iter_steps=10, parallel=False):
     pool = mp.Pool(processes=cpu_count)
     results = []
     samples = []
-    iter_steps = 10
+    iter_steps = iter_steps
     iter_i = 0
 
     manager = mp.Manager()
