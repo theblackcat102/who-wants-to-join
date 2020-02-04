@@ -11,6 +11,7 @@ import pickle
 import os
 import os.path as osp
 import numpy as np
+import multiprocessing as mp
 from src.skipgram import SkipGramNeg, sample_walks
 from src.utils import dict2table, confusion, str2bool, TMP_WRITER_PATH
 
@@ -101,15 +102,16 @@ class GroupGCN():
                 # y = y[pred_mask]
                 y_pred.zero_()
                 y_target.zero_()
-
                 for idx, batch_idx in enumerate(val_data.batch):
                     if pred_mask[idx] == 1:
                         if y[idx] == 1:
                             y_target[batch_idx.data, x[idx][0]] = 1
                         if pred[idx] > 0.5:
                             y_pred[batch_idx.data, x[idx][0]] = 1
-
-                TP, FP, TN, FN = confusion(y_pred, y_target)
+                # consider last batch in dataloader for smaller batch size
+                y_pred_ = y_pred[:x.size(0)]
+                y_target_ = y_target[:x.size(0)]
+                TP, FP, TN, FN = confusion(y_pred_, y_target_)
 
                 recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
                 precision = 0 if (TP+FP) < 1e-5 else TP/(TP+FP)
@@ -152,7 +154,7 @@ class GroupGCN():
                                  layers=args.layers,
                                  dropout=args.dropout)
         if args.pretrain:
-            model = self.pretrain_embeddings(model, 256, epoch_num=10)
+            model = self.pretrain_embeddings(args, model, 256, epoch_num=10)
 
         model = model.cuda()
 
@@ -201,7 +203,7 @@ class GroupGCN():
                         "loss {:.4f}, epoch {}".format(loss.item(), epoch))
                     n_iter += 1
 
-                if epoch % args.eval == 0:
+                if epoch % args.eval == 0 or epoch == epochs-1:
                     print('Epoch: ', epoch)
                     f1, recalls, precisions = self.evaluate(valid_loader,
                                                             model)
@@ -218,7 +220,7 @@ class GroupGCN():
                             'f1': f1
                         }
 
-                if epoch % args.save == 0:
+                if epoch % args.save == 0 or epoch == epochs-1:
                     self.save_checkpoint({
                         'epoch': epoch+1,
                         'model': model.state_dict(),
@@ -242,7 +244,8 @@ class GroupGCN():
         if args.writer is False:
             shutil.rmtree(TMP_WRITER_PATH, ignore_errors=True)
 
-    def pretrain_embeddings(self, model, batch_size, epoch_num=1, neg_num=20):
+    def pretrain_embeddings(self, args, model, batch_size, epoch_num=1,
+                            neg_num=20):
         # from torch.optim.lr_scheduler import StepLR
         import torch.optim as optim
         print('Pretrain embeddings')
@@ -254,9 +257,25 @@ class GroupGCN():
         }
         embeddings = {}
         for node_type, (embed_size, dim) in node_types.items():
-
-            samples = sample_walks(self.train_dataset, neg_num, batch_size,
-                                   node_type, embed_size, parallel=True)
+            if osp.exists(osp.join(args.pretrain_weight,
+                                   'random_walk_{}.pt'.format(node_type))):
+                samples = torch.load(
+                    osp.join(args.pretrain_weight,
+                             'random_walk_{}.pt'.format(node_type)))['samples']
+            # cost a lot of time
+            else:
+                if node_type == 0:
+                    iter_step = 10
+                elif node_type == 1:
+                    iter_step = 5
+                elif node_type == 2:
+                    iter_step = 5
+                elif node_type == 4:
+                    iter_step = 3
+                samples = sample_walks(self.train_dataset, neg_num, batch_size,
+                                       node_type, embed_size,
+                                       cpu_count=mp.cpu_count()-2,
+                                       iter_steps=iter_step, parallel=True)
 
             skip_model = SkipGramNeg(embed_size, dim)
             skip_model = skip_model.cuda()
@@ -264,7 +283,7 @@ class GroupGCN():
                                   weight_decay=1e-9)
             iteration = list(range(len(self.train_dataset)))
             total_idx = 0
-            print('sampling')
+            print('sampling: {}'.format(len(samples)))
             torch.save({'samples': samples},
                        osp.join(self.save_path,
                                 'random_walk_{}.pt'.format(node_type)))
@@ -327,6 +346,7 @@ if __name__ == "__main__":
     parser.add_argument('--eval', type=int, default=10)
     parser.add_argument('--save', type=int, default=50)
     parser.add_argument('--pretrain', type=str2bool, nargs='?', default=False)
+    parser.add_argument('--pretrain-weight', type=str, default='')
     # model parameters
     parser.add_argument('--input-dim', type=int, default=8)
     parser.add_argument('--dropout', type=float, default=0.1)

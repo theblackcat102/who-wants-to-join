@@ -42,7 +42,7 @@ def dict2table(params):
 
 
 def pbar_listener(q, total_size):
-    pbar = tqdm(total=total_size)
+    pbar = tqdm(total=total_size, dynamic_ncols=True)
     while True:
         item = q.get()
         if item is None:
