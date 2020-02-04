@@ -29,7 +29,7 @@ class GroupGCN():
             assert len(shuffle_idx) == len(dataset)
         else:
             shuffle_idx = [idx for idx in range(len(dataset))]
-
+            split_pos = int(len(dataset)*0.7)
             train_idx = shuffle_idx[:split_pos]
             random.shuffle(train_idx)
             shuffle_idx[:split_pos] = train_idx
@@ -106,12 +106,19 @@ class GroupGCN():
                 # y = y[pred_mask]
                 y_pred.zero_()
                 y_target.zero_()
-                for idx, batch_idx in enumerate(val_data.batch):
-                    if pred_mask[idx] == 1:
-                        if y[idx] == 1:
-                            y_target[batch_idx.data, x[idx][0]] = 1
-                        if pred[idx] > 0.5:
-                            y_pred[batch_idx.data, x[idx][0]] = 1
+
+                # for idx, batch_idx in enumerate(val_data.batch):
+                #     if pred_mask[idx] == 1:
+                #         if y[idx] == 1:
+                #             y_target[batch_idx.data, x[idx][0]] = 1
+                #         if pred[idx] > 0.5:
+                #             y_pred[batch_idx.data, x[idx][0]] = 1
+                mask_idx = (pred_mask == 1).nonzero().flatten()
+                for idx, batch_idx in zip(mask_idx,val_data.batch[mask_idx]):
+                    if y[idx] == 1:
+                        y_target[batch_idx.data, x[idx][0]] = 1
+                    if pred[idx] > 0.5:
+                        y_pred[batch_idx.data, x[idx][0]] = 1
                 # consider last batch in dataloader for smaller batch size
                 y_pred_ = y_pred[:x.size(0)]
                 y_target_ = y_target[:x.size(0)]
@@ -256,8 +263,8 @@ class GroupGCN():
         node_types = {
             0: model.user_size,
             1: model.topic_size,
-            2: model.category_size,
-            4: model.group_size,
+            # 2: model.category_size,
+            # 4: model.group_size,
         }
         embeddings = {}
         for node_type, (embed_size, dim) in node_types.items():
