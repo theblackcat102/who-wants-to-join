@@ -33,7 +33,7 @@ class GroupGCN():
             train_idx = shuffle_idx[:split_pos]
             random.shuffle(train_idx)
             shuffle_idx[:split_pos] = train_idx
-            print(shuffle_idx[split_pos: split_pos+10])
+            # print(shuffle_idx[split_pos: split_pos+10])
             with open(args.dataset+'_shuffle_idx.pkl', 'wb') as f:
                 pickle.dump(shuffle_idx, f)
 
