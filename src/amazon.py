@@ -4,7 +4,6 @@ from copy import deepcopy
 import random
 import pickle
 from collections import defaultdict
-from itertools import islice
 import multiprocessing as mp
 from tqdm import tqdm
 import numpy as np
@@ -12,7 +11,7 @@ import networkx as nx
 import torch
 from torch.autograd import Variable
 from torch_geometric.data import Dataset, Data
-from src.utils import pbar_listener
+from src.utils import pbar_listener, chunks
 
 
 def split_group(group_id, members, G, exist_ratio, cutoff):
@@ -56,12 +55,6 @@ def split_group(group_id, members, G, exist_ratio, cutoff):
             if sub_G.has_node(node) and sub_G.has_node(n):
                 sub_G.add_edge(node, int(n))
     return sub_G
-
-
-def chunks(data, size=10000):
-    it = iter(data)
-    for i in range(0, len(data), size):
-        yield {k: data[k] for k in islice(it, size)}
 
 
 def graph2data(G, name2id, node_attr, cat2id):

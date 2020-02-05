@@ -1,3 +1,4 @@
+from itertools import islice
 from tqdm import tqdm
 import torch
 import argparse
@@ -52,10 +53,16 @@ def pbar_listener(q, total_size):
 
 def str2bool(v):
     if isinstance(v, bool):
-       return v
+        return v
     if v.lower() in ('yes', 'true', 't', 'y', '1'):
         return True
     elif v.lower() in ('no', 'false', 'f', 'n', '0'):
         return False
     else:
         raise argparse.ArgumentTypeError('Boolean value expected.')
+
+
+def chunks(data, size=10000):
+    it = iter(data)
+    for i in range(0, len(data), size):
+        yield {k: data[k] for k in islice(it, size)}
