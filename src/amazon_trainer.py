@@ -232,17 +232,23 @@ class GroupGCN():
         }
         embeddings = {}
         for node_type, (embed_size, dim) in node_types.items():
-            samples = sample_walks(self.train_dataset, neg_num, batch_size,
+            if osp.exists(osp.join(args.pretrain_weight,
+                                   'random_walk_{}.pt'.format(node_type))):
+                samples = torch.load(
+                    osp.join(args.pretrain_weight,
+                             'random_walk_{}.pt'.format(node_type)))['samples']
+            else:
+                samples = sample_walks(self.train_dataset, neg_num, batch_size,
                                    node_type, embed_size, cpu_count=40)
+                torch.save({'samples': samples},
+                        osp.join(self.save_path,
+                                    'random_walk_{}.pt'.format(node_type)))
 
             skip_model = SkipGramNeg(embed_size, dim).cuda()
             optimizer = optim.SGD(skip_model.parameters(), lr=1e-5,
                                   weight_decay=1e-9)
             iteration = list(range(len(self.train_dataset)))
             total_idx = 0
-            torch.save({'samples': samples},
-                       osp.join(self.save_path,
-                                'random_walk_{}.pt'.format(node_type)))
             with tqdm(total=len(iteration)*epoch_num) as pbar:
                 for e in range(epoch_num):
                     random.shuffle(samples)
