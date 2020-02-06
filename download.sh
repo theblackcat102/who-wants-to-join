@@ -5,6 +5,7 @@ mkdir data/friendster
 mkdir data/youtube
 mkdir data/orkut
 mkdir data/dblp
+wget https://snap.stanford.edu/data/bigdata/amazon/amazon-meta.txt.gz -P data/amazon
 wget https://snap.stanford.edu/data/bigdata/communities/com-amazon.ungraph.txt.gz -P data/amazon
 wget https://snap.stanford.edu/data/bigdata/communities/com-amazon.all.dedup.cmty.txt.gz -P data/amazon
 wget https://snap.stanford.edu/data/bigdata/communities/com-youtube.all.cmty.txt.gz -P data/youtube

@@ -71,7 +71,6 @@ class GroupGCN():
         with torch.no_grad():
             y_pred = torch.FloatTensor(B, user_size)
             y_target = torch.FloatTensor(B, user_size)
-            y_target_ = torch.FloatTensor(B, user_size)
             for val_data in tqdm(dataloader, dynamic_ncols=True):
                 x, edge_index = val_data.x, val_data.edge_index
                 y = val_data.y

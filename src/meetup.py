@@ -361,8 +361,8 @@ class Meetup(Dataset):
         match_filename = self.cache_file_prefix + '_*_v2.pt'
         self.processed_dir = osp.join("processed", str(self.city_id),
                                       'processed')
-        self.processed_file_idx = list(glob.glob(osp.join(self.processed_dir,
-                                                          match_filename)))
+        self.processed_file_idx = sorted(list(glob.glob(osp.join(self.processed_dir,
+                                                          match_filename))))
 
         super(Meetup, self).__init__(osp.join("processed", str(city_id)),
                                      transform=None,
@@ -526,8 +526,8 @@ class Meetup(Dataset):
         match_filename = self.cache_file_prefix + '_*_v2.pt'
         self.processed_dir = osp.join("processed", str(self.city_id),
                                       'processed')
-        self.processed_file_idx = list(glob.glob(osp.join(self.processed_dir,
-                                                          match_filename)))
+        self.processed_file_idx = sorted(list(glob.glob(osp.join(self.processed_dir,
+                                                          match_filename))))
 
     def __len__(self):
         return len(self.processed_file_idx)
