@@ -182,7 +182,7 @@ class GroupGCN():
                     x = x.cuda()
                     edge_index = edge_index.cuda()
                     label_mask = label_mask.cuda()
-                    pred_mask = data.label_mask.cuda()
+                    pred_mask = data.label_mask.cuda() == 1
                     label = data.y.unsqueeze(-1).cuda().float()
                     if isinstance(model, StackedGCNAmazonV2):
                         output = model(edge_index, x, label_mask)
@@ -315,8 +315,8 @@ if __name__ == "__main__":
     parser.add_argument('--pred-ratio', type=float, default=0.8)
     parser.add_argument('--maxhop', type=int, default=2)
     # training parameters
-    parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--batch-size', type=int, default=64)
+    parser.add_argument('--epochs', type=int, default=100)
+    parser.add_argument('--batch-size', type=int, default=128)
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--pos-weight', type=float, default=-1)
     parser.add_argument('--eval', type=int, default=10)
