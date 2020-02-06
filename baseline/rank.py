@@ -49,7 +49,6 @@ class RankingTrainer():
 
     def calculate_loss(self, outputs, batch, batch_size):
         # calculate triple ranking loss 
-        N = 0
         total_neg = 0
         total_pos = 0
         log_sigmoid = nn.LogSigmoid()
@@ -69,8 +68,6 @@ class RankingTrainer():
 
             pos = log_sigmoid(torch.mm(latent.unsqueeze(-1).T, target_embed.T).flatten())
             total_pos += pos.sum()
-
-
             # not label not known users and node type = user
             negative_node_idx = (batch.y == 0) & (batch.x[:, 1 ] == 0) & (batch.x[:, 2 ] == 0) & paper_idx
 
@@ -88,9 +85,8 @@ class RankingTrainer():
             # torch.dot(target_embed[0],  latent)
             neg = log_sigmoid(-torch.mm(latent.unsqueeze(-1).T, negative_embed.T).flatten())
             total_neg += neg.sum()
-            N += 1
 
-        loss = (total_pos+total_neg)/ (N*2)
+        loss = (total_pos+total_neg) / (batch_size*2)
         return -loss
     
     def inference(self, outputs, x, batch, top_k=10, user_size=874608):
@@ -171,7 +167,7 @@ class RankingTrainer():
     def train(self, batch_size=64, epochs=100):
         train_loader = DataLoader(self.train_dataset,
                                   batch_size=batch_size,
-                                  shuffle=True)
+                                  shuffle=True, drop_last=False)
         valid_loader = DataLoader(self.valid_dataset,
                                   batch_size=batch_size,
                                   shuffle=False)
@@ -203,7 +199,7 @@ class RankingTrainer():
                     pbar.update(1)
                     pbar.set_description(
                         "loss {:.4f}, epoch {}".format(loss.item(), epoch))
-                if epoch % 2 == 0:
+                if epoch % 5 == 0:
                     print(self.evaluate(valid_loader, model))
 
 if __name__ == "__main__":
