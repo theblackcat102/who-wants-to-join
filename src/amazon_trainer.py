@@ -300,6 +300,7 @@ if __name__ == "__main__":
     parser.add_argument('--eval', type=int, default=10)
     parser.add_argument('--save', type=int, default=50)
     parser.add_argument('--pretrain', type=str2bool, nargs='?', default=False)
+    parser.add_argument('--pretrain-weight', type=str, default='')
     # model parameters
     parser.add_argument('--user-dim', type=int, default=16)
     parser.add_argument('--cat-dim', type=int, default=8)

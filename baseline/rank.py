@@ -2,8 +2,7 @@ from src.aminer import Aminer
 from torch_geometric.data import DataLoader
 from src.layers import StackedGCNDBLP
 from datetime import datetime
-
-import os
+import os, sys
 import os.path as osp
 import torch.nn as nn
 import torch
@@ -223,20 +222,17 @@ class RankingTrainer():
         self.writer.add_scalar("Test/Precisions", precisions, n_iter)
         self.writer.flush()
 
-def evaluate_dblp():
-    import argparse
-    parser = argparse.ArgumentParser(
-        description='Deepset Recommendation Model on Amazon with categories')
-    parser.add_argument('--top-k', type=int, default=10)
-    parser.add_argument('--epochs', type=int, default=50)
-    parser.add_argument('--author-dim', type=int, default=16)
-    parser.add_argument('--paper-dim', type=int, default=16)
-    parser.add_argument('--conf-dim', type=int, default=8)
-    parser.add_argument('--input-dim', type=int, default=32)
-    parser.add_argument('--dropout', type=float, default=0.1)
-    parser.add_argument('--layers', nargs='+', type=int, default=[32, 32])
+def evaluate_dblp(parser):
+    print("Aminer")
+    group = parser.add_argument_group('rank parameters')
+    group.add_argument('--author-dim', type=int, default=16)
+    group.add_argument('--paper-dim', type=int, default=16)
+    group.add_argument('--conf-dim', type=int, default=8)
+    group.add_argument('--input-dim', type=int, default=32)
+    group.add_argument('--output-dim',type=int, default=8)
+    group.add_argument('--dropout', type=float, default=0.1)
+    group.add_argument('--layers', nargs='+', type=int, default=[32, 32])
     args = parser.parse_args()
-
     if osp.exists('dblp_hete_shuffle_idx.pkl'):
         with open('dblp_hete_shuffle_idx.pkl', 'rb') as f:
             shuffle_idx = pickle.load(f)
@@ -249,23 +245,136 @@ def evaluate_dblp():
         print(shuffle_idx[split_pos: split_pos+10])
         with open('dblp_hete_shuffle_idx.pkl', 'wb') as f:
             pickle.dump(shuffle_idx, f)
+
     model = StackedGCNDBLP(
                 author_size=874608,#len(author2id),
                 paper_size=3605603,#len(paper2id),
-                conf_size=12770, output_channels=8,
+                conf_size=12770, output_channels=args.output_dim,
                 user_dim=args.author_dim,
                 paper_dim=args.paper_dim,
                 conf_dim=args.conf_dim,
                 input_channels=args.input_dim,
                 layers=args.layers,
                 dropout=args.dropout)
+    if args.weights:
+        print('load pretrain weights')
+        weight = torch.load(args.weights)
+        model.load_state_dict(weight)
 
     dataset = Aminer()
     trainer = RankingTrainer('aminer',model, dataset, shuffle_idx, 
         user_size=874608, top_k=args.top_k, args=args)
     trainer.train(epochs=args.epochs)
 
+def evaluate_meetup(parser):
+    print("Meetup")
+    from src.layers import StackedGCNMeetup
+    from src.meetup import Meetup, locations_id, MEETUP_FOLDER
+    group = parser.add_argument_group('arguments')
+    group.add_argument('--city', type=str, default='SF',
+                        choices=['NY', 'SF'])
+    group.add_argument('--min-size', type=int, default=5)
+    group.add_argument('--max-size', type=int, default=100)
+    group.add_argument('--pred-ratio', type=float, default=0.8)
+    group.add_argument('--maxhop', type=int, default=2)
+    group.add_argument('--input-dim', type=int, default=8)
+    group.add_argument('--dropout', type=float, default=0.1)
+    group.add_argument('--layers', nargs='+', type=int, default=[8, 8])
+    group.add_argument('--output-dim',type=int, default=8)
+    args = parser.parse_args()
+    with open(osp.join(MEETUP_FOLDER, 'topic2id.pkl'), 'rb') as f:
+        topic2id = pickle.load(f)
+    with open(osp.join(MEETUP_FOLDER, 'cat2id.pkl'), 'rb') as f:
+        cat2id = pickle.load(f)
+    # with open(osp.join(MEETUP_FOLDER, 'group2topic.pkl'), 'rb') as f:
+    #     group2topic = pickle.load(f)
+    dataset = Meetup(city_id=locations_id[args.city],
+                         cutoff=args.maxhop, min_size=args.min_size,
+                         max_size=args.max_size)
+    category_size = 40
+    topic_size = len(topic2id)
+    group_size = len(dataset.group2id)
+
+    args = parser.parse_args()
+    if osp.exists(args.city+'_shuffle_idx.pkl'):
+        with open(args.city+'_shuffle_idx.pkl', 'rb') as f:
+            shuffle_idx = pickle.load(f)
+    model = StackedGCNMeetup(user_size=len(dataset.user2id),
+                                 category_size=category_size,
+                                 topic_size=topic_size,
+                                 group_size=group_size,
+                                 input_channels=args.input_dim,
+                                 output_channels=args.output_dim,
+                                 layers=args.layers,
+                                 dropout=args.dropout)
+    if args.weights:
+        print('load pretrain weights')
+        weight = torch.load(args.weights)
+        model.load_state_dict(weight)
+
+    trainer = RankingTrainer('meetup_'+str(args.city)+'_', model, dataset, shuffle_idx, 
+        user_size=len(dataset.user2id), top_k=args.top_k, args=args)
+    trainer.train(epochs=args.epochs, batch_size=16)
+
+
+
+def evaluate_amazon(parser):
+    print("Amazon")
+    from src.layers import StackedGCNAmazon
+    from src.amazon import AmazonCommunity
+    group = parser.add_argument_group('arguments')
+    group.add_argument('--user-dim', type=int, default=16)
+    group.add_argument('--cat-dim', type=int, default=8)
+    group.add_argument('--min-size', type=int, default=5)
+    group.add_argument('--max-size', type=int, default=100)
+    group.add_argument('--pred-ratio', type=float, default=0.8)
+    group.add_argument('--maxhop', type=int, default=2)
+    group.add_argument('--input-dim', type=int, default=32)
+    group.add_argument('--dropout', type=float, default=0.1)
+    group.add_argument('--layers', nargs='+', type=int, default=[32, 32])
+    group.add_argument('--output-dim',type=int, default=8)
+    args = parser.parse_args()
+    dataset = AmazonCommunity(cutoff=args.maxhop, min_size=args.min_size,
+                                  max_size=args.max_size)
+    with open('data/amazon/cat2id.pkl', 'rb') as f:
+        cat2id = pickle.load(f)
+
+    category_size = len(cat2id)
+
+    args = parser.parse_args()
+
+    with open('amazon_hete_shuffle_idx.pkl', 'rb') as f:
+        shuffle_idx = pickle.load(f)
+    model = StackedGCNAmazon(len(dataset.user2id),
+                                 category_size=category_size,
+                                 user_dim=args.user_dim,
+                                 category_dim=args.cat_dim,
+                                 input_channels=args.input_dim,
+                                 layers=args.layers,
+                                 dropout=args.dropout)
+    if args.weights:
+        print('load pretrain weights')
+        weight = torch.load(args.weights)
+        model.load_state_dict(weight)
+
+    trainer = RankingTrainer('amazon_', model, dataset, shuffle_idx, 
+        user_size=len(dataset.user2id), top_k=args.top_k, args=args)
+    trainer.train(epochs=args.epochs, batch_size=16)
 
 if __name__ == "__main__":
-    evaluate_dblp()
+    import argparse
+    parser = argparse.ArgumentParser(
+        description='CF rank method for group expansion')
+    parser.add_argument('--dataset', type=str, default='aminer')
+    parser.add_argument('--top-k', type=int, default=5)
+    parser.add_argument('--epochs', type=int, default=50)
+    parser.add_argument('--weights', type=str, default='')
+    if sys.argv[1] == '--dataset':
+        if sys.argv[2] == 'aminer':
+            evaluate_dblp(parser)
+        elif sys.argv[2] == 'meetup':
+            evaluate_meetup(parser)
+        elif sys.argv[2] == 'amazon':
+            evaluate_amazon(parser)
+        
 

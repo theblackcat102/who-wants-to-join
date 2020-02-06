@@ -239,8 +239,14 @@ class GroupGCN():
         model = model.cpu()
 
         for node_type, (embed_size, dim) in node_types.items():
-
-            samples = sample_walks(self.train_dataset, neg_num, batch_size, node_type, embed_size)
+            if osp.exists(osp.join(args.pretrain_weight,
+                                   'random_walk_{}.pt'.format(node_type))):
+                samples = torch.load(
+                    osp.join(args.pretrain_weight,
+                             'random_walk_{}.pt'.format(node_type)))['samples']
+            else:
+                samples = sample_walks(self.train_dataset, neg_num, batch_size, node_type, embed_size)
+                torch.save({'samples' : samples}, os.path.join(self.save_path, 'random_walk_{}.pt'.format(node_type)))
 
             skip_model = SkipGramNeg(embed_size, dim)
             skip_model = skip_model.cuda()
@@ -248,7 +254,6 @@ class GroupGCN():
             iteration = list(range(len(self.train_dataset)))
             total_idx = 0
             print('sampling')
-            torch.save({'samples' : samples}, os.path.join(self.save_path, 'random_walk_{}.pt'.format(node_type)))
             with tqdm(total=len(iteration)*epoch_num) as pbar:
                 for e in range(epoch_num):
                     random.shuffle(samples)
@@ -304,6 +309,7 @@ if __name__ == "__main__":
     parser.add_argument('--eval', type=int, default=10)
     parser.add_argument('--save', type=int, default=50)
     parser.add_argument('--pretrain', type=str2bool, nargs='?', default=False)
+    parser.add_argument('--pretrain-weight', type=str, default='')
     # model parameters
     parser.add_argument('--author-dim', type=int, default=16)
     parser.add_argument('--paper-dim', type=int, default=16)

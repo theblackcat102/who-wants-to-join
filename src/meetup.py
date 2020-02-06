@@ -299,7 +299,7 @@ def graph2data(G, name2id, member2topic, group2topic, category2id, group2id,
 def async_graph_save(group, group_mappings, ratio, cutoff, G, user2id,
                      member2topic, group2topic, category2id, group2id,
                      topic2id, filename_prefix, processed_dir, file_idx,
-                     pbar_queue, pre_filter=None, pre_transform=None):
+                     pbar_queue, transform=None,pre_filter=None, pre_transform=None):
     group_id = group['group_id']
     members = group_mappings[int(group_id)]
 
@@ -314,6 +314,8 @@ def async_graph_save(group, group_mappings, ratio, cutoff, G, user2id,
     #     pre_filter(data)
     if pre_transform is not None:
         data = pre_transform(data)
+        if data is None:
+            return
     filename = filename_prefix+'_{}_v2.pt'.format(file_idx)
     torch.save(data, osp.join(processed_dir, filename))
     del G
@@ -336,7 +338,7 @@ def convertmemberattributes(city_id, min_size, max_size, node_min_freq=3):
 
 class Meetup(Dataset):
     def __init__(self, cutoff=2, ratio=0.8, min_size=5, max_size=100,
-                 city_id=10001, min_freq=3):
+                 city_id=10001, min_freq=3, transform=None, data_type=None):
         self.cutoff = cutoff
         self.ratio = ratio
         self.min_size = min_size
@@ -347,6 +349,9 @@ class Meetup(Dataset):
         self.cache_file_prefix = '{}_{}_{}_{}_{}_{}'.format(
             'meetups', self.city_id, self.cutoff, self.ratio, self.min_size,
             self.min_freq)
+        if data_type:
+            self.cache_file_prefix = data_type+'_'+self.cache_file_prefix
+
         user2id_name = '%d_%d_%d_%d_user2id.pkl' % (
             self.city_id, self.min_size, self.max_size, self.min_freq)
         if osp.exists(osp.join(MEETUP_FOLDER, user2id_name)):
@@ -365,7 +370,7 @@ class Meetup(Dataset):
                                                           match_filename))))
 
         super(Meetup, self).__init__(osp.join("processed", str(city_id)),
-                                     transform=None,
+                                     transform=transform,
                                      pre_transform=None)
         if len(self.processed_file_idx) == 0:
             self.process()

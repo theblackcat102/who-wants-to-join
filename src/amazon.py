@@ -250,7 +250,7 @@ def load_amazon_meta():
 
 class AmazonCommunity(Dataset):
     def __init__(self, cutoff=2, ratio=0.8, min_size=5,
-                 max_size=500):
+                 max_size=500, transform=None):
         self.dataset = 'amazon'
         dataset = 'amazon'
         self.cutoff = cutoff
@@ -312,7 +312,7 @@ class AmazonCommunity(Dataset):
         self.processed_file_idx = [idx for idx in range(self.group_size)]
 
         super(AmazonCommunity, self).__init__(osp.join("processed", dataset+'_hete'),
-                                              transform=None,
+                                              transform=transform,
                                               pre_transform=None)
         # self.process()
         # self.data, self.slices = torch.load(self.processed_paths[0])

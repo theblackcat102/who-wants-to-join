@@ -343,13 +343,17 @@ def graph2data(G, titleid):
     return data
 
 
-def async_postprocessing(paper, H, idx, processed_dir, cache_file_prefix, cutoff=2):
+def async_postprocessing(paper, H, idx, processed_dir, cache_file_prefix, cutoff=2, pre_transform=None):
     sub_G, hit, pred_cnt = create_subgraph(paper, H, cutoff=cutoff)
     if sub_G is None:
         return None
     if idx < 100: # debug purpose make sure sub_G nodes number differ each iteration
         print(len(sub_G.nodes), hit, pred_cnt)
     data = graph2data(sub_G, paper['title'])
+    if pre_transform:
+        data = pre_transform(data)
+        if data is None:
+            return None
     filename = cache_file_prefix+'_{}_v2.pt'.format(idx)
     torch.save(data, osp.join(processed_dir, filename))
     return None
@@ -358,7 +362,7 @@ def async_postprocessing(paper, H, idx, processed_dir, cache_file_prefix, cutoff
 class Aminer(Dataset):
 
     def __init__(self, cutoff=2, ratio=0.8, min_size=5, max_size=100,
-                 city_id=10001, baseline=False):
+                 city_id=10001, baseline=False, transform=None, data_type=None):
         self.cutoff = cutoff
         self.ratio = ratio
         self.min_size = min_size
@@ -371,13 +375,15 @@ class Aminer(Dataset):
             self.data_folder = 'dblp_hete_base'
         self.cache_file_prefix = '{}_{}_{}_{}_3'.format(
             'dblp', self.cutoff, self.ratio, self.min_size)
+        if data_type:
+            self.cache_file_prefix  = data_type + '_' + self.cache_file_prefix
         self.processed_dir = osp.join(osp.join("processed", self.data_folder), 'processed')
         match_filename = self.cache_file_prefix+'_*_v2.pt'
         self.list_of_data = list(glob.glob(osp.join(self.processed_dir, match_filename)))
 
         os.makedirs(osp.join(osp.join("processed", self.data_folder), 'processed'), exist_ok=True)
         super(Aminer, self).__init__(osp.join("processed", self.data_folder),
-                                     transform=None,
+                                     transform=transform,
                                      pre_transform=None)
         self.process()
 
@@ -462,7 +468,7 @@ class Aminer(Dataset):
     def get(self, idx):
         if isinstance(idx, list):
             new_self = deepcopy(self)
-            new_self.processed_file_idx = np.array(self.processed_file_idx)[idx]
+            new_self.list_of_data = np.array(self.list_of_data)[idx]
             return new_self
         filename = self.processed_file_names[idx]
         data = torch.load(filename)
@@ -470,5 +476,11 @@ class Aminer(Dataset):
 
 
 if __name__ == "__main__":
-    # init_dblp()
+    init_dblp()
     Aminer()
+    # data = torch.load('processed/dblp_v1/processed/dblp_3_0.8_5_3_997_v2.pt')
+    # print(data)
+    # G = graph_data_obj_to_nx(data)
+    # print(len(G.nodes))
+    # data = nx_to_graph_data_obj(G, 0)
+    # print(data)
