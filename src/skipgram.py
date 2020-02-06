@@ -97,6 +97,7 @@ def generate_batch(G, batch_size, node_type, embedding_size, neg_num=2):
         return batch_inputs[shuffle_idx], batch_labels[shuffle_idx], batch_negative_samples[shuffle_idx]
     return [], [], []
 
+
 def generate_batch_(data, node_type, embedding_size, neg_num=2):
     batch_cnt = 0
     batch_labels, batch_inputs, batch_negative_samples = [], [], []
@@ -104,8 +105,6 @@ def generate_batch_(data, node_type, embedding_size, neg_num=2):
         start_idxs = (data.x[:, 2] == node_type).nonzero().flatten()
         for start_idx in start_idxs.chunk(5, 0):
             walks = random_walk(data.edge_index[1, :], data.edge_index[0, :], start_idx, walk_length=3)
-
-
 
 
 def sample_pairs(datasets, neg_num, batch_size, node_type, embed_size):
@@ -136,7 +135,6 @@ def sample_pairs_parallel(datasets, neg_num, batch_size, node_type, embed_size,
         neg__list.append(neg_)
     pbar_queue.put(len(datasets))
     return labels_list, inputs_list, neg__list
-
 
 
 def sample_walks(train_datasets, neg_num, batch_size, node_type, embed_size,
