@@ -296,7 +296,7 @@ if __name__ == "__main__":
     parser.add_argument('--maxhop', type=int, default=2)
     # training parameters
     parser.add_argument('--epochs', type=int, default=100)
-    parser.add_argument('--baseline', type=str2bool,nargs='?', default=False,
+    parser.add_argument('--baseline', type=str2bool, nargs='?', default=False,
         help='baseline model only takes in previous co-author relationship (no conference, no paper id)')
     parser.add_argument('--batch-size', type=int, default=64)
     parser.add_argument('--lr', type=float, default=0.001)

@@ -136,12 +136,12 @@ class GroupGCN():
         return f1, avg_recalls, avg_precisions
 
     def train(self, epochs=200):
+        from torch.optim.lr_scheduler import ReduceLROnPlateau
         args = self.args
         train_size = len(self.train_dataset.processed_file_idx)
         val_size = len(self.valid_dataset.processed_file_idx)
         train_val_set_size = len(set(self.valid_dataset.processed_file_idx +
                                      self.train_dataset.processed_file_idx))
-
         assert train_val_set_size == (train_size+val_size)
 
         train_loader = DataLoader(self.train_dataset,
@@ -182,6 +182,7 @@ class GroupGCN():
             weight = args.pos_weight
         optimizer = torch.optim.Adam(
             model.parameters(), lr=args.lr, weight_decay=5e-4)
+        scheduler = ReduceLROnPlateau(optimizer, 'max')
         print('weight : ', weight)
         pos_weight = torch.ones([1])*weight
         pos_weight = pos_weight.cuda()
@@ -218,6 +219,7 @@ class GroupGCN():
                     print('Epoch: ', epoch)
                     f1, recalls, precisions = self.evaluate(valid_loader,
                                                             model)
+                    scheduler.step(f1)
                     self.writer.add_scalar("Valid/F1", f1, n_iter)
                     self.writer.add_scalar("Valid/Recalls", recalls, n_iter)
                     self.writer.add_scalar("Valid/Precisions", precisions,

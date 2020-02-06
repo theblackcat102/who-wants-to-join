@@ -451,8 +451,8 @@ class Aminer(Dataset):
                 H = append_paper_graph(H, deepcopy(p), paper2id, conf2id, 
                     author2id, citation_graph, index2title)
 
-            if idx % 200 == 0 and idx != 0:
-                sleep(10)
+            # if idx % 200 == 0 and idx != 0:
+            #     sleep(10)
 
         for res in results:
             res.get()
