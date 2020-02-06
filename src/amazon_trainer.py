@@ -30,6 +30,7 @@ class GroupGCN():
             random.shuffle(shuffle_idx)
             with open('amazon_hete_shuffle_idx.pkl', 'wb') as f:
                 pickle.dump(shuffle_idx, f)
+
         with open('data/amazon/cat2id.pkl', 'rb') as f:
             cat2id = pickle.load(f)
 
@@ -48,10 +49,6 @@ class GroupGCN():
         self.train_dataset = dataset[train_idx]
         self.test_dataset = dataset[test_idx]
         self.valid_dataset = dataset[valid_idx]
-
-        print(len(set(
-            self.valid_dataset.processed_file_idx +
-            self.train_dataset.processed_file_idx)))
 
         self.args = args
         if args.writer is True:
@@ -130,9 +127,9 @@ class GroupGCN():
         args = self.args
         train_size = len(self.train_dataset.processed_file_idx)
         val_size = len(self.valid_dataset.processed_file_idx)
-        train_val_set_size = len(set(self.valid_dataset.processed_file_idx +
-                                     self.train_dataset.processed_file_idx))
-        assert train_val_set_size == (train_size+val_size)
+        print((len(set(self.valid_dataset.processed_file_idx+self.train_dataset.processed_file_idx))))
+        print(train_size+val_size)
+        assert (len(set(self.valid_dataset.processed_file_idx+self.train_dataset.processed_file_idx))) == (train_size+val_size)
 
         train_loader = DataLoader(self.train_dataset,
                                   batch_size=args.batch_size,
@@ -171,10 +168,9 @@ class GroupGCN():
         pos_weight = torch.ones([1])*weight
         self.pos_weight = pos_weight.cuda()
         criterion = torch.nn.BCEWithLogitsLoss(pos_weight=self.pos_weight)
-        # crossentropy = torch.nn.CrossEntropyLoss()
+
         n_iter = 0
         best_f1 = 0
-
         self.writer.add_text('Text', dict2table(vars(args)), 0)
 
         with tqdm(total=len(train_loader)*epochs, dynamic_ncols=True) as pbar:

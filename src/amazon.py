@@ -426,7 +426,7 @@ class AmazonCommunity(Dataset):
                                args=[pbar_queue, len(group2member), ])
         pbar_proc.start()
         # chunkize to cpu_count()*5 for better load balance
-        total_cpu = 4  # mp.cpu_count()
+        total_cpu = mp.cpu_count()-1
         chunk_size = len(group2member)//total_cpu//5
         pool = mp.Pool(processes=total_cpu)
         for sub_group2member in chunks(group2member, chunk_size):
