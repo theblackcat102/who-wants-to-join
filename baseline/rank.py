@@ -221,7 +221,7 @@ class RankingTrainer():
         self.writer.add_scalar("Test/F1", f1, n_iter)
         self.writer.add_scalar("Test/Recalls", recalls, n_iter)
         self.writer.add_scalar("Test/Precisions", precisions, n_iter)
-
+        self.writer.flush()
 
 def evaluate_dblp():
     import argparse
