@@ -1,6 +1,8 @@
 from src.aminer import Aminer
 from torch_geometric.data import DataLoader
 from src.layers import StackedGCNDBLP
+from datetime import datetime
+
 import os
 import os.path as osp
 import torch.nn as nn
@@ -8,6 +10,7 @@ import torch
 import pickle
 from tqdm import tqdm
 from src.utils import dict2table, confusion, str2bool
+from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import random
 
@@ -16,24 +19,15 @@ import random
 """
     current default value is top 10
 """
-
 class RankingTrainer():
 
-    def __init__(self, batch_size=64):
-        if osp.exists('dblp_hete_shuffle_idx.pkl'):
-            with open('dblp_hete_shuffle_idx.pkl', 'rb') as f:
-                shuffle_idx = pickle.load(f)
-        else:
-            shuffle_idx = [idx for idx in range(len(dataset))]
-            split_pos = int(len(dataset)*0.7)
-            train_idx = shuffle_idx[:split_pos]
-            random.shuffle(train_idx)
-            shuffle_idx[:split_pos] = train_idx
-            print(shuffle_idx[split_pos: split_pos+10])
-            with open('dblp_hete_shuffle_idx.pkl', 'wb') as f:
-                pickle.dump(shuffle_idx, f)
+    def __init__(self, name, model, dataset, shuffle_idx, 
+        user_size, batch_size=64, top_k=5, args=None):
+        self.name = name
+        self.model = model
+        self.user_size = user_size
+        self.top_k = top_k
 
-        dataset = Aminer()
         dataset = dataset[shuffle_idx]
 
         split_pos = int(len(dataset)*0.7)
@@ -46,6 +40,14 @@ class RankingTrainer():
         self.train_dataset = dataset[train_idx]
         self.test_dataset = dataset[test_idx]
         self.valid_dataset = dataset[valid_idx]
+        self.log_path = osp.join(
+            "logs", "baseline",
+            self.name+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+        self.writer = SummaryWriter(log_dir=self.log_path)
+
+        if args:
+            self.writer.add_text('Text', dict2table(vars(args)), 0)
+
 
     def calculate_loss(self, outputs, batch, batch_size):
         # calculate triple ranking loss 
@@ -118,15 +120,12 @@ class RankingTrainer():
 
         return y_pred
 
-    def evaluate(self, dataloader, model):
+    def evaluate(self, dataloader, model, user_size=874608):
         model.eval()
         recalls = []
         precisions = []
         B = self.batch_size
-        user_size = 874608
         val_loss = 0
-        cnt = 0
-
         with torch.no_grad():
             for batch in tqdm(dataloader, dynamic_ncols=True):
                 x, edge_index = batch.x, batch.edge_index
@@ -137,7 +136,8 @@ class RankingTrainer():
 
                 outputs = outputs.cpu()       
                 x = x.cpu()
-                y_pred = self.inference(outputs, x, batch.batch, user_size=user_size)
+                y_pred = self.inference(outputs, x, batch.batch, 
+                    user_size=user_size, top_k=self.top_k)
 
                 B = torch.max(batch.batch)+1
                 y_target = torch.FloatTensor(B, user_size)
@@ -155,16 +155,14 @@ class RankingTrainer():
                 # print(precision, recall)
                 precisions.append(precision)
                 recalls.append(recall)
-                cnt += 1
 
         avg_recalls = np.mean(recalls)
         avg_precisions = np.mean(precisions)
         f1 = 2*(avg_recalls*avg_precisions)/(avg_recalls+avg_precisions)
         model.train()
-        return f1, avg_recalls, avg_precisions, val_loss/cnt
+        return f1, avg_recalls, avg_precisions, val_loss/len(dataloader)
 
-
-    def train(self, batch_size=64, epochs=100):
+    def train(self, batch_size=64, epochs=50):
         train_loader = DataLoader(self.train_dataset,
                                   batch_size=batch_size,
                                   shuffle=True, drop_last=False)
@@ -172,18 +170,15 @@ class RankingTrainer():
                                   batch_size=batch_size,
                                   shuffle=False)
         self.batch_size = batch_size
-        # test_loader = DataLoader(self.test_dataset,
-        #                          batch_size=args.batch_size,
-        #                          shuffle=False)
-
-        model = StackedGCNDBLP(
-                   author_size=874608,#len(author2id),
-                   paper_size=3605603,#len(paper2id),
-                   conf_size=12770, output_channels=8)
+        test_loader = DataLoader(self.test_dataset,
+                                 batch_size=batch_size,
+                                 shuffle=False)
+        best_f1 = 0
+        model = self.model
         model = model.cuda()
         optimizer = torch.optim.Adam(
             model.parameters(), lr=0.0005, weight_decay=5e-4)
-
+        n_iter = 0
         with tqdm(total=len(train_loader)*epochs, dynamic_ncols=True) as pbar:
             for epoch in range(epochs):
 
@@ -194,14 +189,83 @@ class RankingTrainer():
                     edge_index = edge_index.cuda()
                     outputs = model(edge_index, x)
                     loss = self.calculate_loss(outputs, batch, batch_size)
+                    self.writer.add_scalar(
+                        "Train/loss", loss.item(), n_iter)
                     loss.backward()
                     optimizer.step()
                     pbar.update(1)
                     pbar.set_description(
                         "loss {:.4f}, epoch {}".format(loss.item(), epoch))
+                    n_iter += 1
                 if epoch % 5 == 0:
-                    print(self.evaluate(valid_loader, model))
+                    f1, recalls, precisions, val_loss = self.evaluate(valid_loader, model, 
+                        user_size=self.user_size)
+                    self.writer.add_scalar(
+                        "Val/loss", val_loss.item(), n_iter)
+                    self.writer.add_scalar("Val/F1", f1, n_iter)
+                    self.writer.add_scalar("Val/Recalls", recalls, n_iter)
+                    self.writer.add_scalar("Val/Precisions", precisions, n_iter)
+
+                    if f1 > best_f1:
+                        best_f1 = f1
+                        best_checkpoint = {
+                            'epoch': epoch+1,
+                            'model': model.state_dict(),
+                            'optimizer': optimizer.state_dict(),
+                            'f1': f1
+                        }
+                    print(f1)
+        model.load_state_dict(best_checkpoint["model"])
+        f1, recalls, precisions, _ = self.evaluate(test_loader, model)    
+        print(f1, recalls, precisions)
+        self.writer.add_scalar("Test/F1", f1, n_iter)
+        self.writer.add_scalar("Test/Recalls", recalls, n_iter)
+        self.writer.add_scalar("Test/Precisions", precisions, n_iter)
+
+
+def evaluate_dblp():
+    import argparse
+    parser = argparse.ArgumentParser(
+        description='Deepset Recommendation Model on Amazon with categories')
+    parser.add_argument('--top-k', type=int, default=10)
+    parser.add_argument('--epochs', type=int, default=50)
+    parser.add_argument('--author-dim', type=int, default=16)
+    parser.add_argument('--paper-dim', type=int, default=16)
+    parser.add_argument('--conf-dim', type=int, default=8)
+    parser.add_argument('--input-dim', type=int, default=32)
+    parser.add_argument('--dropout', type=float, default=0.1)
+    parser.add_argument('--layers', nargs='+', type=int, default=[32, 32])
+    args = parser.parse_args()
+
+    if osp.exists('dblp_hete_shuffle_idx.pkl'):
+        with open('dblp_hete_shuffle_idx.pkl', 'rb') as f:
+            shuffle_idx = pickle.load(f)
+    else:
+        shuffle_idx = [idx for idx in range(len(dataset))]
+        split_pos = int(len(dataset)*0.7)
+        train_idx = shuffle_idx[:split_pos]
+        random.shuffle(train_idx)
+        shuffle_idx[:split_pos] = train_idx
+        print(shuffle_idx[split_pos: split_pos+10])
+        with open('dblp_hete_shuffle_idx.pkl', 'wb') as f:
+            pickle.dump(shuffle_idx, f)
+    model = StackedGCNDBLP(
+                author_size=874608,#len(author2id),
+                paper_size=3605603,#len(paper2id),
+                conf_size=12770, output_channels=8,
+                user_dim=args.author_dim,
+                paper_dim=args.paper_dim,
+                conf_dim=args.conf_dim,
+                input_channels=args.input_dim,
+                layers=args.layers,
+                dropout=args.dropout)
+
+    dataset = Aminer()
+    trainer = RankingTrainer('aminer',model, dataset, shuffle_idx, 
+        user_size=874608, top_k=args.top_k, args=args)
+    trainer.train(epochs=args.epochs)
+
 
 if __name__ == "__main__":
-    trainer = RankingTrainer()
-    trainer.train()
+    evaluate_dblp()
+
