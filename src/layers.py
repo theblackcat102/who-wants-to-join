@@ -310,15 +310,18 @@ class StackedGCNDBLP(torch.nn.Module):
         features = self.layers[-1](features, edges)
         # predictions = torch.nn.functional.log_sigmoid(features, dim=1)
         return features
+
+
 class StackedGCNMeetup(torch.nn.Module):
     """
     Multi-layer GCN model.
     """
     def __init__(
-            self, user_size, 
-            category_size, 
-            topic_size, 
-            group_size, 
+            self,
+            user_size,
+            category_size,
+            topic_size,
+            group_size,
             user_dim=8, category_dim=2, topic_dim=8, group_dim=8,
             input_channels=8, output_channels=1, layers=[16, 16],
             dropout=0.1):
@@ -326,10 +329,11 @@ class StackedGCNMeetup(torch.nn.Module):
         :param args: Arguments object.
         :input_channels: Number of features.
         :output_channels: Number of target features.
+        user_size: len(user2id)
         """
         super(StackedGCNMeetup, self).__init__()
-        self.user_size = ( user_size, user_dim)
-        self.category_size=  (category_size, category_dim)
+        self.user_size = (user_size, user_dim)
+        self.category_size = (category_size, category_dim)
         self.topic_size = (topic_size, topic_dim)
         self.group_size = (group_size, group_dim)
         # print(user_size, category_size, topic_size, group_size)
@@ -364,13 +368,10 @@ class StackedGCNMeetup(torch.nn.Module):
         self.output_channels = output_channels
 
         self.layers = []
-        self.layers_dim = ([self.input_channels] +
-                           self.layers_dim +
-                           [self.output_channels])
-        for i, _ in enumerate(self.layers_dim[:-2]):
-            self.layers.append(
-                GCNConv(self.layers_dim[i], self.layers_dim[i+1]))
-        self.layers.append(GCNConv(self.layers_dim[-2], self.layers_dim[-1]))
+        self.layers_dim = (
+            [self.input_channels]+self.layers_dim+[self.output_channels])
+        for in_c, out_c in zip(self.layers_dim[:-1], self.layers_dim[1:]):
+            self.layers.append(GCNConv(in_c, out_c))
         self.layers = nn.ModuleList(self.layers)
 
     def forward(self, edges, features):
@@ -381,27 +382,26 @@ class StackedGCNMeetup(torch.nn.Module):
         :return predictions: Prediction matrix output FLoatTensor.
         """
 
-        user_feature_idx = features[ features[:, -1] == 0, 0 ]
-        known_user_idx = features[ features[:, -1] == 0, 1 ]
-        topic_idx = features[ features[:, -1] == 1, 0 ]
+        user_feature_idx = features[features[:, -1] == 0, 0]
+        known_user_idx = features[features[:, -1] == 0, 1]
+        topic_idx = features[features[:, -1] == 1, 0]
+        group_idx = features[features[:, -1] == 4, 0]
+        category_idx = features[features[:, -1] == 2, 0]
 
-        group_idx = features[ features[:, -1] == 4, 0]
-
-        category_idx = features[ features[:, -1] == 2, 0]
-
-        user_feature = self.embeddings(user_feature_idx )
-        known_feat = self.known_embeddings(known_user_idx)
-        user_feature = self.user_proj(user_feature + known_feat)
+        user_feature = self.embeddings(user_feature_idx)
+        known_user_feature = self.known_embeddings(known_user_idx)
+        user_feature = self.user_proj(user_feature + known_user_feature)
 
         topic_feature = self.topic_proj(self.topic_embeddings(topic_idx))
         group_feature = self.group_proj(self.group_embeddings(group_idx))
-        category_feature = self.category_proj(self.category_embeddings(category_idx))
+        category_feature = self.category_proj(
+            self.category_embeddings(category_idx))
 
         new_features = torch.zeros((len(features), self.input_channels)).cuda()
-        new_features[ features[:, -1] == 0 ] = user_feature
-        new_features[ features[:, -1] == 1 ] = topic_feature
-        new_features[ features[:, -1] == 2 ] = category_feature
-        new_features[ features[:, -1] == 4 ] = group_feature
+        new_features[features[:, -1] == 0] = user_feature
+        new_features[features[:, -1] == 1] = topic_feature
+        new_features[features[:, -1] == 2] = category_feature
+        new_features[features[:, -1] == 4] = group_feature
         features = new_features
 
         for i, _ in enumerate(self.layers[:-2]):

@@ -5,16 +5,17 @@ from copy import deepcopy
 import pickle
 from collections import defaultdict
 import multiprocessing as mp
-from tqdm import tqdm
 import numpy as np
 import networkx as nx
 import torch
 from torch.autograd import Variable
 from torch_geometric.data import Dataset, Data
 from src.dataset import split_group
+from src.utils import pbar_listener
 import gzip
 import pandas as pd
-from time import sleep
+import time
+
 
 MEETUP_FOLDER = 'meetup_v2/'
 MEETUP_GROUP = 'meetup_v2/groups.csv'
@@ -33,6 +34,7 @@ locations_id = {
 
 def build_initial_graph(city_id=10001, min_size=5, max_size=500, cutoff=2,
                         exist_ratio=0.8, min_freq=3):
+    print('Load group and member csv (might take some time)')
     df = pd.read_csv(MEETUP_GROUP)
     df = df[df['city_id'] == city_id]
 
@@ -47,37 +49,62 @@ def build_initial_graph(city_id=10001, min_size=5, max_size=500, cutoff=2,
 
     df = pd.read_csv(MEETUP_MEMBER, encoding='ISO-8859-1')
     df = df[df['group_id'].isin(valid_group_id)]
-    print('Build member mapping')
+    print('Build member mapping', end=": ")
+    t_build_member_mapping = time.perf_counter()
     group_map_name = '%d_%d_%d_%d_group_mapping.pkl' % (city_id, min_size,
                                                         max_size, min_freq)
 
     if not osp.exists(osp.join(MEETUP_FOLDER, group_map_name)):
-        group_mappings = defaultdict(list)
-        member_frequecies = defaultdict(int)
-        for idx, row in tqdm(df.iterrows()):
-            if row['group_id'] in valid_group_id:
-                group_mappings[row['group_id']].append(row['member_id'])
-                member_frequecies[row['member_id']] += 1
+        # group_mappings_ = defaultdict(list)
+        # member_frequecies_ = defaultdict(int)
+        # for idx, row in tqdm(df.iterrows()):
+        #     if row['group_id'] in valid_group_id:
+        #         group_mappings_[row['group_id']].append(row['member_id'])
+        #         member_frequecies_[row['member_id']] += 1
 
-        valid_members = []
-        for m, freq in member_frequecies.items():
-            if freq >= min_freq:
-                valid_members.append(m)
+        # valid_members_ = []
+        # for m, freq in member_frequecies_.items():
+        #     if freq >= min_freq:
+        #         valid_members_.append(m)
+        # valid_members_ = set(valid_members_)
+        # new_group_ = defaultdict(list)
+        # valid_members_ = set(valid_members_)
+        # for group_id, members in group_mappings_.items():
+        #     for m in members:
+        #         if m in valid_members_:
+        #             new_group_[group_id].append(m)
+        # group_mappings_ = new_group_
+        # all_group_id_ = list(group_mappings_.keys())
+        # for group_id in all_group_id_:
+        #     members_len = len(group_mappings_[int(group_id)])
+        #     if members_len < min_size or members_len > max_size:
+        #         group_mappings_.pop(group_id, None)
+
+        group_mappings = df.groupby('group_id').agg({'member_id': list})
+        group_mappings = group_mappings[
+            group_mappings.index.isin(valid_group_id)]
+        member_frequecies = (
+            df['member_id'].value_counts()
+            .rename_axis('member_id')
+            .reset_index(name='counts')
+            )
         print("filter member < %d" % min_freq)
-        new_group = defaultdict(list)
-        valid_members = set(valid_members)
-        for group_id, members in group_mappings.items():
-            for m in members:
-                if m in valid_members:
-                    new_group[group_id].append(m)
-        group_mappings = new_group
+        member_frequecies = member_frequecies[
+            member_frequecies['counts'] >= min_freq]
+        valid_members = set(member_frequecies.member_id.values)
 
-        all_group_id = list(group_mappings.keys())
+        group_mappings = (
+            group_mappings["member_id"]
+            .apply(lambda x: [item for item in x if item in valid_members])
+            .reset_index(name='member_id')
+            .set_index('group_id'))
+        all_group_id = list(group_mappings.index.values)
+        group_mappings = group_mappings[
+            (group_mappings['member_id'].map(len) >= min_size) &
+            (group_mappings['member_id'].map(len) <= max_size)]
+        group_mappings = group_mappings.T.to_dict()
+        group_mappings = {k: v['member_id'] for k, v in group_mappings.items()}
 
-        for group_id in all_group_id:
-            members_len = len(group_mappings[int(group_id)])
-            if members_len < min_size or members_len > max_size:
-                group_mappings.pop(group_id, None)
         print("Init {} Group found".format(len(group_mappings)))
         with open(osp.join(MEETUP_FOLDER, group_map_name), 'wb') as f:
             pickle.dump(group_mappings, f)
@@ -97,7 +124,7 @@ def build_initial_graph(city_id=10001, min_size=5, max_size=500, cutoff=2,
     else:
         with open(osp.join(MEETUP_FOLDER, user2id_name), 'rb') as f:
             user2id = pickle.load(f)
-
+    print("{}ms".format(round(time.perf_counter()-t_build_member_mapping, 5)))
     print("{} Group found".format(len(group_mappings)))
     # build social network based on first half group
     new_groups = []
@@ -120,10 +147,8 @@ def build_initial_graph(city_id=10001, min_size=5, max_size=500, cutoff=2,
                 for jdx, n in enumerate(members[idx+1:]):
                     if not G.has_node(n):
                         G.add_node(n, group=group_id)
-
                     if not G.has_node(m):
                         G.add_node(m, group=group_id)
-
                     if G.has_node(n) and G.has_node(m):
                         G.add_edge(n, m)
 
@@ -192,7 +217,7 @@ def graph2data(G, name2id, member2topic, group2topic, category2id, group2id,
     edges = []
     labels = []
     loss_mask = []
-
+    # member: 0
     for n in G.nodes:
         node_latent = None
         if n in name2id:
@@ -205,15 +230,15 @@ def graph2data(G, name2id, member2topic, group2topic, category2id, group2id,
 
         edge_index = np.array(list(G.edges(n)))
         new_edges = []
-        for idx in range(len(edge_index)):
-            src, dst = edge_index[idx]
+        for idx, (src, dst) in enumerate(edge_index):
+            # src, dst = edge_index[idx]
             # edge_index[idx] = [graph_idx[src], graph_idx[dst]]
             new_edges.append([graph_idx[dst], graph_idx[src]])
         edges.append(new_edges)
         nodes.append(node_latent)
         loss_mask.append(1)
         labels.append(G.nodes[n]['predict'])
-
+    # topic: 1
     for n in G.nodes:
         if n in member2topic:
             for t in member2topic[int(n)]:
@@ -221,12 +246,11 @@ def graph2data(G, name2id, member2topic, group2topic, category2id, group2id,
                 if t_id not in graph_idx:
                     graph_idx[t_id] = len(graph_idx)
                 # no need to change topic2id
-                nodes.append(torch.from_numpy(
-                    np.array([t, -1, 1])))
+                nodes.append(torch.from_numpy(np.array([t, -1, 1])))
                 loss_mask.append(0)
                 labels.append(0)
                 edges.append([[graph_idx[t_id], graph_idx[n]]])
-
+    # group: 4
     nodes.append(torch.from_numpy(
                     np.array([group2id[G.graph['group_id']], -1, 4])))
     loss_mask.append(0)
@@ -235,20 +259,19 @@ def graph2data(G, name2id, member2topic, group2topic, category2id, group2id,
     graph_idx[group_name] = len(graph_idx)
     for n in G.nodes:
         edges.append([[graph_idx[n], graph_idx[group_name]]])
-
+    # topic: 1
     if G.graph['group_id'] in group2topic:
         new_edges = []
         for t in group2topic[int(G.graph['group_id'])]:
             t_id = 't'+str(t)
             if t_id not in graph_idx:
                 graph_idx[t_id] = len(graph_idx)
-            nodes.append(torch.from_numpy(
-                np.array([topic2id[t], -1, 1])))
+            nodes.append(torch.from_numpy(np.array([topic2id[t], -1, 1])))
             loss_mask.append(0)
             labels.append(0)
             new_edges.append([graph_idx[t_id], graph_idx[group_name]])
         edges.append(new_edges)
-
+    # category: 2
     if G.graph['category_id'] in category2id:
         cat_name = 'c'+str(category2id[G.graph['category_id']])
         graph_idx[cat_name] = len(graph_idx)
@@ -276,7 +299,7 @@ def graph2data(G, name2id, member2topic, group2topic, category2id, group2id,
 def async_graph_save(group, group_mappings, ratio, cutoff, G, user2id,
                      member2topic, group2topic, category2id, group2id,
                      topic2id, filename_prefix, processed_dir, file_idx,
-                     pre_filter=None, pre_transform=None):
+                     pbar_queue, pre_filter=None, pre_transform=None):
     group_id = group['group_id']
     members = group_mappings[int(group_id)]
 
@@ -294,6 +317,7 @@ def async_graph_save(group, group_mappings, ratio, cutoff, G, user2id,
     filename = filename_prefix+'_{}_v2.pt'.format(file_idx)
     torch.save(data, osp.join(processed_dir, filename))
     del G
+    pbar_queue.put(1)
 
 
 def convertmemberattributes(city_id, min_size, max_size, node_min_freq=3):
@@ -422,7 +446,6 @@ class Meetup(Dataset):
         print('Build subgraph')
         # build social graph of each group
         # sub_groups = []
-        file_idx = 0
 
         # check cat2id, topic2id, group2topic, member2topic
         for feature in ['cat2id', 'topic2id', 'group2topic', 'member2topic']:
@@ -452,11 +475,17 @@ class Meetup(Dataset):
 
         # make dir for torch.save
         os.makedirs(self.processed_dir, exist_ok=True)
-        pool = mp.Pool(processes=8)
+
+        # one progressbar for multiprocessing
+        manager = mp.Manager()
+        pbar_queue = manager.Queue()
+        pbar_proc = mp.Process(target=pbar_listener,
+                               args=[pbar_queue, len(second_half_group), ])
+        pbar_proc.start()
+        pool = mp.Pool(processes=mp.cpu_count()-1)
         results = []
-        for group_idx, group in tqdm(enumerate(second_half_group),
-                                     total=len(second_half_group),
-                                     dynamic_ncols=True):
+        file_idx = 0
+        for group in second_half_group:
             group_id = group['group_id']
             members = group_mappings[int(group_id)]
 
@@ -467,19 +496,18 @@ class Meetup(Dataset):
             for idx, m in enumerate(members):
                 if not G.has_node(m):
                     G.add_node(m, group=group_id)
-
                 if len(members) > (idx+1):
                     for jdx, n in enumerate(members[idx+1:]):
                         if not G.has_node(n):
                             G.add_node(n, group=group_id)
-
                         if G.has_node(n) and G.has_node(m):
                             G.add_edge(n, m)
 
             # split current group into sub graph
             args = [group, group_mappings, self.ratio, self.cutoff, G.copy(),
                     user2id, member2topic, group2topic, cat2id, group2id,
-                    topic2id, filename_prefix, self.processed_dir, file_idx]
+                    topic2id, filename_prefix, self.processed_dir, file_idx,
+                    pbar_queue]
 
             kwds = {
                 'pre_filter': self.pre_filter,
@@ -487,13 +515,14 @@ class Meetup(Dataset):
             res = pool.apply_async(async_graph_save, args=args, kwds=kwds)
             results.append(res)
             file_idx += 1
-            if group_idx % 200 == 0 and group_idx != 0:
-                sleep(10)
+            # if group_idx % 200 == 0 and group_idx != 0:
+            #     sleep(10)
         # for res in results:
         #     res.get()
         pool.close()
         pool.join()
-
+        pbar_queue.put(None)
+        pbar_proc.join()
         match_filename = self.cache_file_prefix + '_*_v2.pt'
         self.processed_dir = osp.join("processed", str(self.city_id),
                                       'processed')

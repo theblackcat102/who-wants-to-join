@@ -114,7 +114,7 @@ class GroupGCN():
                 #         if pred[idx] > 0.5:
                 #             y_pred[batch_idx.data, x[idx][0]] = 1
                 mask_idx = (pred_mask == 1).nonzero().flatten()
-                for idx, batch_idx in zip(mask_idx,val_data.batch[mask_idx]):
+                for idx, batch_idx in zip(mask_idx, val_data.batch[mask_idx]):
                     if y[idx] == 1:
                         y_target[batch_idx.data, x[idx][0]] = 1
                     if pred[idx] > 0.5:
@@ -157,7 +157,7 @@ class GroupGCN():
                                  shuffle=False,
                                  num_workers=4)
 
-        model = StackedGCNMeetup(len(self.train_dataset.user2id),
+        model = StackedGCNMeetup(user_size=len(self.train_dataset.user2id),
                                  category_size=self.category_size,
                                  topic_size=self.topic_size,
                                  group_size=self.group_size,

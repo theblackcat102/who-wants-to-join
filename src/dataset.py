@@ -23,19 +23,18 @@ def split_group(group_id, members, G, exist_ratio, cutoff):
     if predict_ratio < 2:
         predict_ratio = 2
         ratio_ = len(members) - predict_ratio
-
+    # member: known_member/exist_nodes | need_to_predict_member
     exist_nodes = members[:ratio_]
 
     # find nodes reachable from start_node within cutoff distance
     sub_graph_nodes = []
     for start_node in exist_nodes:
-
         n_nodes = nx.single_source_shortest_path_length(G, start_node,
                                                         cutoff=cutoff)
         sub_graph_nodes += [n for n in n_nodes]
         sub_graph_nodes.append(start_node)
 
-    # Build subgraph
+    # build subgraph
     sub_graph_nodes = set(sub_graph_nodes)
     sub_G = nx.Graph()
     in_group_cnt = 0
@@ -49,7 +48,7 @@ def split_group(group_id, members, G, exist_ratio, cutoff):
             predict = 1
         in_group_cnt += in_group
         sub_G.add_node(node, in_group=in_group, predict=predict,
-                        known_member=known_member)
+                       known_member=known_member)
 
     for node in sub_graph_nodes:
         for n in G.neighbors(node):
@@ -57,10 +56,12 @@ def split_group(group_id, members, G, exist_ratio, cutoff):
                 sub_G.add_edge(node, int(n))
     return sub_G
 
+
 def chunks(data, size=10000):
     it = iter(data)
     for i in range(0, len(data), size):
         yield {k: data[k] for k in islice(it, size)}
+
 
 def graph2data(G, name2id):
     graph_idx = {}
