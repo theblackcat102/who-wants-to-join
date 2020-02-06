@@ -164,3 +164,6 @@ dmypy.json
 # tensorboard
 logs
 tmp_writer
+
+# backup
+backup

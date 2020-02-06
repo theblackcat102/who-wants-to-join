@@ -1,5 +1,5 @@
 from datetime import datetime
-from src.layers import StackedGCNMeetup
+from src.layers import StackedGCNMeetup, StackedGCNMeetupV2
 from src.meetup import Meetup, locations_id, MEETUP_FOLDER
 from torch_geometric.data import DataLoader
 import random
@@ -41,8 +41,6 @@ class GroupGCN():
             topic2id = pickle.load(f)
         with open(osp.join(MEETUP_FOLDER, 'cat2id.pkl'), 'rb') as f:
             cat2id = pickle.load(f)
-        # with open(osp.join(MEETUP_FOLDER, 'group2topic.pkl'), 'rb') as f:
-        #     group2topic = pickle.load(f)
 
         self.category_size = 40
         self.topic_size = len(topic2id)
@@ -63,13 +61,7 @@ class GroupGCN():
         self.test_dataset = dataset[test_idx]
         self.valid_dataset = dataset[valid_idx]
 
-        # print(len(set(
-        #     self.valid_dataset.processed_file_idx +
-        #     self.train_dataset.processed_file_idx)))
-        # print(len(self.valid_dataset)+ len(self.train_dataset))
-
         self.args = args
-
         if args.writer is True:
             self.log_path = osp.join(
                 "logs", "meetup",
@@ -91,28 +83,30 @@ class GroupGCN():
         model.eval()
         recalls = []
         precisions = []
+        losses = []
         B = args.batch_size
         user_size = len(self.train_dataset.user2id)
+        criterion = torch.nn.BCEWithLogitsLoss(pos_weight=self.pos_weight)
         print('Validation')
         with torch.no_grad():
             y_pred = torch.FloatTensor(B, user_size)
             y_target = torch.FloatTensor(B, user_size)
             for val_data in tqdm(dataloader, dynamic_ncols=True):
-                x, edge_index = val_data.x, val_data.edge_index
+                x, edge_index, label_mask = (val_data.x, val_data.edge_index,
+                                             val_data.label_mask)
                 y = val_data.y.cpu()
-                pred_mask = val_data.label_mask.cpu()
-                pred = model(edge_index.cuda(), x.cuda())
+                pred_mask = val_data.label_mask
+                label = val_data.y.unsqueeze(-1).cuda().float()
+                if isinstance(model, StackedGCNMeetupV2):
+                    pred = model(edge_index.cuda(), x.cuda(),
+                                 label_mask.cuda())
+                else:
+                    pred = model(edge_index.cuda(), x.cuda())
+                loss = criterion(pred[pred_mask], label[pred_mask])
                 pred = torch.sigmoid(pred).cpu()
-                # y = y[pred_mask]
                 y_pred.zero_()
                 y_target.zero_()
 
-                # for idx, batch_idx in enumerate(val_data.batch):
-                #     if pred_mask[idx] == 1:
-                #         if y[idx] == 1:
-                #             y_target[batch_idx.data, x[idx][0]] = 1
-                #         if pred[idx] > 0.5:
-                #             y_pred[batch_idx.data, x[idx][0]] = 1
                 mask_idx = (pred_mask == 1).nonzero().flatten()
                 for idx, batch_idx in zip(mask_idx, val_data.batch[mask_idx]):
                     if y[idx] == 1:
@@ -128,20 +122,24 @@ class GroupGCN():
                 precision = 0 if (TP+FP) < 1e-5 else TP/(TP+FP)
                 precisions.append(precision)
                 recalls.append(recall)
+                losses.append((loss.sum()/val_data.num_graphs).item())
 
         avg_recalls = np.mean(recalls)
         avg_precisions = np.mean(precisions)
-        f1 = 2*(avg_recalls*avg_precisions)/(avg_recalls+avg_precisions)
+        if (avg_recalls+avg_precisions) == 0:
+            f1 = np.nan
+        else:
+            f1 = 2*(avg_recalls*avg_precisions)/(avg_recalls+avg_precisions)
         model.train()
-        return f1, avg_recalls, avg_precisions
+        return f1, avg_recalls, avg_precisions, np.mean(losses)
 
     def train(self, epochs=200):
+        from torch.optim.lr_scheduler import ReduceLROnPlateau
         args = self.args
         train_size = len(self.train_dataset.processed_file_idx)
         val_size = len(self.valid_dataset.processed_file_idx)
         train_val_set_size = len(set(self.valid_dataset.processed_file_idx +
                                      self.train_dataset.processed_file_idx))
-
         assert train_val_set_size == (train_size+val_size)
 
         train_loader = DataLoader(self.train_dataset,
@@ -156,17 +154,19 @@ class GroupGCN():
                                  batch_size=args.batch_size,
                                  shuffle=False,
                                  num_workers=4)
-
-        model = StackedGCNMeetup(user_size=len(self.train_dataset.user2id),
-                                 category_size=self.category_size,
-                                 topic_size=self.topic_size,
-                                 group_size=self.group_size,
-                                 input_channels=args.input_dim,
-                                 layers=args.layers,
-                                 dropout=args.dropout)
+        if args.label_mask:
+            model_class = StackedGCNMeetupV2
+        else:
+            model_class = StackedGCNMeetup
+        model = model_class(user_size=len(self.train_dataset.user2id),
+                            category_size=self.category_size,
+                            topic_size=self.topic_size,
+                            group_size=self.group_size,
+                            input_channels=args.input_dim,
+                            layers=args.layers,
+                            dropout=args.dropout)
         if args.pretrain:
             model = self.pretrain_embeddings(args, model, 256, epoch_num=10)
-
         model = model.cuda()
 
         position_weight = {
@@ -182,10 +182,11 @@ class GroupGCN():
             weight = args.pos_weight
         optimizer = torch.optim.Adam(
             model.parameters(), lr=args.lr, weight_decay=5e-4)
+        scheduler = ReduceLROnPlateau(optimizer, 'max')
         print('weight : ', weight)
         pos_weight = torch.ones([1])*weight
-        pos_weight = pos_weight.cuda()
-        criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        self.pos_weight = pos_weight.cuda()
+        criterion = torch.nn.BCEWithLogitsLoss(pos_weight=self.pos_weight)
 
         n_iter = 0
         best_f1 = 0
@@ -195,14 +196,17 @@ class GroupGCN():
             for epoch in range(epochs):
                 for data in train_loader:
                     optimizer.zero_grad()
-                    x, edge_index = data.x, data.edge_index
+                    x, edge_index, label_mask = (data.x, data.edge_index,
+                                                 data.label_mask)
                     x = x.cuda()
                     edge_index = edge_index.cuda()
+                    label_mask = label_mask.cuda()
                     pred_mask = data.label_mask.cuda() == 1
                     label = data.y.unsqueeze(-1).cuda().float()
-                    output = model(edge_index, x)
-                    # pred_ = torch.sigmoid(output) > 0.5
-                    # print(pred_.sum(), label.sum(), pred_mask.sum())
+                    if isinstance(model, StackedGCNMeetupV2):
+                        output = model(edge_index, x, label_mask)
+                    else:
+                        output = model(edge_index, x)
                     loss = criterion(output[pred_mask], label[pred_mask])
                     loss.backward()
 
@@ -216,11 +220,14 @@ class GroupGCN():
 
                 if epoch % args.eval == 0 or epoch == epochs-1:
                     print('Epoch: ', epoch)
-                    f1, recalls, precisions = self.evaluate(valid_loader,
-                                                            model)
+                    f1, recalls, precisions, loss = self.evaluate(valid_loader,
+                                                                  model)
+                    scheduler.step(f1)
                     self.writer.add_scalar("Valid/F1", f1, n_iter)
                     self.writer.add_scalar("Valid/Recalls", recalls, n_iter)
                     self.writer.add_scalar("Valid/Precisions", precisions,
+                                           n_iter)
+                    self.writer.add_scalar("Valid/avg_BCEWithLogitsLoss", loss,
                                            n_iter)
                     if f1 > best_f1:
                         best_f1 = f1
@@ -358,6 +365,8 @@ if __name__ == "__main__":
     parser.add_argument('--save', type=int, default=50)
     parser.add_argument('--pretrain', type=str2bool, nargs='?', default=False)
     parser.add_argument('--pretrain-weight', type=str, default='')
+    parser.add_argument('--label-mask', type=str2bool, nargs='?',
+                        default=False, help="add label_mask as input")
     # model parameters
     parser.add_argument('--input-dim', type=int, default=8)
     parser.add_argument('--dropout', type=float, default=0.1)

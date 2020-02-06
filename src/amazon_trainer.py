@@ -1,8 +1,9 @@
 from datetime import datetime
-from src.layers import StackedGCNAmazon
+from src.layers import StackedGCNAmazon, StackedGCNAmazonV2
 from src.amazon import AmazonCommunity
 from torch_geometric.data import DataLoader
 import random
+import shutil
 from tqdm import tqdm
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -11,7 +12,7 @@ import os
 import os.path as osp
 import numpy as np
 from src.skipgram import SkipGramNeg, sample_walks
-from src.utils import dict2table, confusion, str2bool
+from src.utils import dict2table, confusion, str2bool, TMP_WRITER_PATH
 
 
 class GroupGCN():
@@ -29,6 +30,7 @@ class GroupGCN():
             random.shuffle(shuffle_idx)
             with open('amazon_hete_shuffle_idx.pkl', 'wb') as f:
                 pickle.dump(shuffle_idx, f)
+
         with open('data/amazon/cat2id.pkl', 'rb') as f:
             cat2id = pickle.load(f)
 
@@ -48,15 +50,15 @@ class GroupGCN():
         self.test_dataset = dataset[test_idx]
         self.valid_dataset = dataset[valid_idx]
 
-        print(len(set(
-            self.valid_dataset.processed_file_idx +
-            self.train_dataset.processed_file_idx)))
-
         self.args = args
+        if args.writer is True:
+            self.log_path = osp.join(
+                "logs", "amazon",
+                'amazon_hete_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+        else:
+            shutil.rmtree(TMP_WRITER_PATH, ignore_errors=True)
+            self.log_path = TMP_WRITER_PATH
 
-        self.log_path = osp.join(
-            "logs", "amazon",
-            'amazon_hete_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
         self.writer = SummaryWriter(log_dir=self.log_path)
         self.save_path = osp.join(self.log_path, "models")
         os.makedirs(self.save_path, exist_ok=True)
@@ -70,52 +72,63 @@ class GroupGCN():
         model.eval()
         recalls = []
         precisions = []
+        losses = []
         B = args.batch_size
         user_size = len(self.train_dataset.user2id)
+        criterion = torch.nn.BCEWithLogitsLoss(pos_weight=self.pos_weight)
         print('Validation')
         with torch.no_grad():
             y_pred = torch.FloatTensor(B, user_size)
             y_target = torch.FloatTensor(B, user_size)
             for val_data in tqdm(dataloader, dynamic_ncols=True):
-                x, edge_index = val_data.x, val_data.edge_index
-                y = val_data.y
+                x, edge_index, label_mask = (val_data.x, val_data.edge_index,
+                                             val_data.label_mask)
+                y = val_data.y.cpu()
                 pred_mask = val_data.label_mask
-                pred = model(edge_index.cuda(), x.cuda())
+                label = val_data.y.unsqueeze(-1).cuda().float()
+                if isinstance(model, StackedGCNAmazonV2):
+                    pred = model(edge_index.cuda(), x.cuda(),
+                                 label_mask.cuda())
+                else:
+                    pred = model(edge_index.cuda(), x.cuda())
+                loss = criterion(pred[pred_mask], label[pred_mask])
                 pred = torch.sigmoid(pred).cpu()
-                # y = y[pred_mask]
                 y_pred.zero_()
                 y_target.zero_()
 
-                # for idx, batch_idx in enumerate(val_data.batch):
-                #     if pred_mask[idx] == 1:
-                #         if y[idx] == 1:
-                #             y_target[batch_idx.data, x[idx][0]] = 1
-                #         if pred[idx] > 0.5:
-                #             y_pred[batch_idx.data, x[idx][0]] = 1
                 mask_idx = (pred_mask == 1).nonzero().flatten()
-                for idx, batch_idx in zip(mask_idx,val_data.batch[mask_idx]):
+                for idx, batch_idx in zip(mask_idx, val_data.batch[mask_idx]):
                     if y[idx] == 1:
                         y_target[batch_idx.data, x[idx][0]] = 1
                     if pred[idx] > 0.5:
                         y_pred[batch_idx.data, x[idx][0]] = 1
-
-                TP, FP, TN, FN = confusion(y_pred, y_target)
+                # consider last batch in dataloader for smaller batch size
+                y_pred_ = y_pred[:x.size(0)]
+                y_target_ = y_target[:x.size(0)]
+                TP, FP, TN, FN = confusion(y_pred_, y_target_)
 
                 recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
                 precision = 0 if (TP+FP) < 1e-5 else TP/(TP+FP)
                 precisions.append(precision)
                 recalls.append(recall)
+                losses.append((loss.sum()/val_data.num_graphs).item())
 
         avg_recalls = np.mean(recalls)
         avg_precisions = np.mean(precisions)
-        f1 = 2*(avg_recalls*avg_precisions)/(avg_recalls+avg_precisions)
+        if (avg_recalls+avg_precisions) == 0:
+            f1 = np.nan
+        else:
+            f1 = 2*(avg_recalls*avg_precisions)/(avg_recalls+avg_precisions)
         model.train()
-        return f1, avg_recalls, avg_precisions
+        return f1, avg_recalls, avg_precisions, np.mean(losses)
 
     def train(self, epochs=200):
+        from torch.optim.lr_scheduler import ReduceLROnPlateau
         args = self.args
         train_size = len(self.train_dataset.processed_file_idx)
         val_size = len(self.valid_dataset.processed_file_idx)
+        print((len(set(self.valid_dataset.processed_file_idx+self.train_dataset.processed_file_idx))))
+        print(train_size+val_size)
         assert (len(set(self.valid_dataset.processed_file_idx+self.train_dataset.processed_file_idx))) == (train_size+val_size)
 
         train_loader = DataLoader(self.train_dataset,
@@ -127,14 +140,17 @@ class GroupGCN():
         test_loader = DataLoader(self.test_dataset,
                                  batch_size=args.batch_size,
                                  shuffle=False)
-
-        model = StackedGCNAmazon(len(self.train_dataset.user2id),
-                                 category_size=self.category_size,
-                                 user_dim=args.user_dim,
-                                 category_dim=args.cat_dim,
-                                 input_channels=args.input_dim,
-                                 layers=args.layers,
-                                 dropout=args.dropout)
+        if args.label_mask:
+            model_class = StackedGCNAmazonV2
+        else:
+            model_class = StackedGCNAmazon
+        model = model_class(len(self.train_dataset.user2id),
+                            category_size=self.category_size,
+                            user_dim=args.user_dim,
+                            category_dim=args.cat_dim,
+                            input_channels=args.input_dim,
+                            layers=args.layers,
+                            dropout=args.dropout)
 
         if args.pretrain:
             model = self.pretrain_embeddings(model, 64, epoch_num=2)
@@ -147,38 +163,37 @@ class GroupGCN():
             weight = args.pos_weight
         optimizer = torch.optim.Adam(
             model.parameters(), lr=args.lr, weight_decay=5e-4)
+        scheduler = ReduceLROnPlateau(optimizer, 'max')
         print('weight : ', weight)
         pos_weight = torch.ones([1])*weight
-        pos_weight = pos_weight.cuda()
-        criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-        # crossentropy = torch.nn.CrossEntropyLoss()
+        self.pos_weight = pos_weight.cuda()
+        criterion = torch.nn.BCEWithLogitsLoss(pos_weight=self.pos_weight)
+
         n_iter = 0
         best_f1 = 0
-
         self.writer.add_text('Text', dict2table(vars(args)), 0)
 
         with tqdm(total=len(train_loader)*epochs, dynamic_ncols=True) as pbar:
             for epoch in range(epochs):
                 for data in train_loader:
                     optimizer.zero_grad()
-                    x, edge_index = data.x, data.edge_index
+                    x, edge_index, label_mask = (data.x, data.edge_index,
+                                                 data.label_mask)
                     x = x.cuda()
                     edge_index = edge_index.cuda()
+                    label_mask = label_mask.cuda()
                     pred_mask = data.label_mask.cuda()
                     label = data.y.unsqueeze(-1).cuda().float()
-                    output = model(edge_index, x)
-
-                    binary_loss = criterion(output[pred_mask],
-                                            label[pred_mask])
-                    loss = binary_loss
+                    if isinstance(model, StackedGCNAmazonV2):
+                        output = model(edge_index, x, label_mask)
+                    else:
+                        output = model(edge_index, x)
+                    loss = criterion(output[pred_mask], label[pred_mask])
                     loss.backward()
 
                     optimizer.step()
                     self.writer.add_scalar(
-                        "Train/BCEWithLogitsLoss", binary_loss.item(), n_iter)
-                    # self.writer.add_scalar(
-                    #     "Train/CrossEntropyLoss", entropy_loss.item(), n_iter
-                    # )
+                        "Train/BCEWithLogitsLoss", loss.item(), n_iter)
                     pbar.update(1)
                     pbar.set_description(
                         "loss {:.4f}, epoch {}".format(loss.item(), epoch))
@@ -186,11 +201,14 @@ class GroupGCN():
 
                 if epoch % args.eval == 0:
                     print('Epoch: ', epoch)
-                    f1, recalls, precisions = self.evaluate(valid_loader,
-                                                            model)
+                    f1, recalls, precisions, loss = self.evaluate(valid_loader,
+                                                                  model)
+                    scheduler.step(f1)
                     self.writer.add_scalar("Valid/F1", f1, n_iter)
                     self.writer.add_scalar("Valid/Recalls", recalls, n_iter)
                     self.writer.add_scalar("Valid/Precisions", precisions,
+                                           n_iter)
+                    self.writer.add_scalar("Valid/avg_BCEWithLogitsLoss", loss,
                                            n_iter)
                     if f1 > best_f1:
                         best_f1 = f1
@@ -223,6 +241,10 @@ class GroupGCN():
         self.writer.add_scalar("Test/Precisions", precisions, n_iter)
         self.writer.flush()
 
+        # clean tmp_writer
+        if args.writer is False:
+            shutil.rmtree(TMP_WRITER_PATH, ignore_errors=True)
+
     def pretrain_embeddings(self, model, batch_size, epoch_num=1, neg_num=20):
         import torch.optim as optim
         print('Pretrain embeddings')
@@ -239,9 +261,9 @@ class GroupGCN():
                              'random_walk_{}.pt'.format(node_type)))['samples']
             else:
                 samples = sample_walks(self.train_dataset, neg_num, batch_size,
-                                   node_type, embed_size, cpu_count=40)
+                                       node_type, embed_size, cpu_count=40)
                 torch.save({'samples': samples},
-                        osp.join(self.save_path,
+                           osp.join(self.save_path,
                                     'random_walk_{}.pt'.format(node_type)))
 
             skip_model = SkipGramNeg(embed_size, dim).cuda()
@@ -301,12 +323,16 @@ if __name__ == "__main__":
     parser.add_argument('--save', type=int, default=50)
     parser.add_argument('--pretrain', type=str2bool, nargs='?', default=False)
     parser.add_argument('--pretrain-weight', type=str, default='')
+    parser.add_argument('--label-mask', type=str2bool, nargs='?',
+                        default=False, help="add label_mask as input")
     # model parameters
     parser.add_argument('--user-dim', type=int, default=16)
     parser.add_argument('--cat-dim', type=int, default=8)
     parser.add_argument('--input-dim', type=int, default=32)
     parser.add_argument('--dropout', type=float, default=0.1)
     parser.add_argument('--layers', nargs='+', type=int, default=[32, 32, 32])
+    # debug
+    parser.add_argument('--writer', type=str2bool, nargs='?', default=True)
 
     args = parser.parse_args()
 
