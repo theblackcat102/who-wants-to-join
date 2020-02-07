@@ -119,14 +119,17 @@ class GroupGCN():
 
         train_loader = DataLoader(self.train_dataset,
                                   batch_size=args.batch_size,
-                                  shuffle=True)
+                                  shuffle=True,
+                                  num_workers=6)
         valid_loader = DataLoader(self.valid_dataset,
                                   batch_size=args.batch_size,
-                                  shuffle=False)
+                                  shuffle=False,
+                                  num_workers=6)
 
         test_loader = DataLoader(self.test_dataset,
                                  batch_size=args.batch_size,
-                                 shuffle=False)
+                                 shuffle=False,
+                                 num_workers=6)
         # with open('aminer/preprocess_dblp.pkl', 'rb') as f:
         #     dblp = pickle.load(f)
         # author2id = dblp['author2id']
@@ -147,7 +150,7 @@ class GroupGCN():
         model = model.cuda()
 
         if args.pos_weight <= 0:
-            weight = 50  # default
+            weight = 5  # default
             args.pos_weight = weight
         else:
             weight = args.pos_weight

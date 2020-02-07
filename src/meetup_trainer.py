@@ -145,15 +145,15 @@ class GroupGCN():
         train_loader = DataLoader(self.train_dataset,
                                   batch_size=args.batch_size,
                                   shuffle=True,
-                                  num_workers=4)
+                                  num_workers=6)
         valid_loader = DataLoader(self.valid_dataset,
                                   batch_size=args.batch_size,
                                   shuffle=False,
-                                  num_workers=4)
+                                  num_workers=6)
         test_loader = DataLoader(self.test_dataset,
                                  batch_size=args.batch_size,
                                  shuffle=False,
-                                 num_workers=4)
+                                 num_workers=6)
         if args.label_mask:
             model_class = StackedGCNMeetupV2
             print('v2')
