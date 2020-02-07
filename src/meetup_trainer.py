@@ -188,7 +188,7 @@ class GroupGCN():
         pos_weight = torch.ones([1])*weight
         self.pos_weight = pos_weight.cuda()
         criterion = torch.nn.BCEWithLogitsLoss(pos_weight=self.pos_weight)
-
+        xentropy = torch.nn.CrossEntropyLoss()
         n_iter = 0
         best_f1 = 0
         self.writer.add_text('Text', dict2table(vars(args)), 0)
@@ -378,9 +378,9 @@ if __name__ == "__main__":
     parser.add_argument('--label-mask', type=str2bool, nargs='?',
                         default=False, help="add label_mask as input")
     # model parameters
-    parser.add_argument('--input-dim', type=int, default=8)
+    parser.add_argument('--input-dim', type=int, default=16)
     parser.add_argument('--dropout', type=float, default=0.1)
-    parser.add_argument('--layers', nargs='+', type=int, default=[8, 8, 8])
+    parser.add_argument('--layers', nargs='+', type=int, default=[16, 16])
     # debug
     parser.add_argument('--writer', type=str2bool, nargs='?', default=True)
 
