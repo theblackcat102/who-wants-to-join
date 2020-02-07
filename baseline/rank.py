@@ -314,7 +314,7 @@ def evaluate_meetup(parser):
 
     trainer = RankingTrainer('meetup_'+str(args.city)+'_', model, dataset, shuffle_idx, 
         user_size=len(dataset.user2id), top_k=args.top_k, args=args)
-    trainer.train(epochs=args.epochs, batch_size=16)
+    trainer.train(epochs=args.epochs, batch_size=8)
 
 
 
@@ -363,18 +363,20 @@ def evaluate_amazon(parser):
 
 if __name__ == "__main__":
     import argparse
+    dataset_function_map = {
+        'aminer': evaluate_dblp,
+        'meetup': evaluate_meetup,
+        'amazon': evaluate_amazon,
+    }
     parser = argparse.ArgumentParser(
         description='CF rank method for group expansion')
-    parser.add_argument('--dataset', type=str, default='aminer')
+    parser.add_argument('dataset', type=str, default='aminer', choices=['aminer', 'meetup', 'amazon'])
     parser.add_argument('--top-k', type=int, default=5)
     parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--weights', type=str, default='')
-    if sys.argv[1] == '--dataset':
-        if sys.argv[2] == 'aminer':
-            evaluate_dblp(parser)
-        elif sys.argv[2] == 'meetup':
-            evaluate_meetup(parser)
-        elif sys.argv[2] == 'amazon':
-            evaluate_amazon(parser)
-        
+
+    if sys.argv[1] in ['aminer', 'meetup', 'amazon']:
+        dataset_function_map[sys.argv[1]](parser)
+    else:
+        print('Valid dataset are aminer, meetup, amazon')        
 

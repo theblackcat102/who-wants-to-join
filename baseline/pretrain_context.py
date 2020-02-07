@@ -90,7 +90,6 @@ def train(args, model_substruct, model_context, loader, optimizer_substruct, opt
 
     return balanced_loss_accum/step, acc_accum/step
 
-
 def pretrain_aminer(parser):
     from src.aminer import Aminer
     from src.layers import StackedGCNDBLP
@@ -102,7 +101,7 @@ def pretrain_aminer(parser):
     group.add_argument('--input-dim', type=int, default=32)
     group.add_argument('--dropout', type=float, default=0.1)
     group.add_argument('--layers', nargs='+', type=int, default=[32, 32])
-    group.add_argument('--output-dim',type=int, default=32)
+    group.add_argument('--output-dim',type=int, default=8)
 
     args = parser.parse_args()
     device = torch.device("cuda:" + str(args.device)) if torch.cuda.is_available() else torch.device("cpu")
@@ -149,7 +148,6 @@ def pretrain_aminer(parser):
 
     if not args.model_file == "":
         torch.save(model_substruct.state_dict(), args.model_file + ".pth")
-
 
 def pretrain_meetup(parser):
     from src.layers import StackedGCNMeetup
@@ -282,11 +280,12 @@ def pretrain_amazon(parser):
         torch.save(model_substruct.state_dict(), args.model_file + ".pth")
 
 
-
 if __name__ == "__main__":
     import argparse
+
     parser = argparse.ArgumentParser(
         description='CF rank method for group expansion')
+    parser.add_argument('dataset', type=str, default='aminer', choices=['aminer', 'meetup', 'amazon'])    
     parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--lr', type=float, default=0.001,
                         help='learning rate (default: 0.001)')
@@ -302,13 +301,15 @@ if __name__ == "__main__":
                         help='center (default: 0).')
     parser.add_argument('--neg_samples', type=int, default=1,
                         help='number of negative contexts per positive context (default: 1)')
-    parser.add_argument('--dataset', type=str, default='aminer')
 
-    if sys.argv[1] == '--dataset':
-        if sys.argv[2] == 'aminer':
-            pretrain_aminer(parser)
-        elif sys.argv[2] == 'meetup':
-            pretrain_meetup(parser)
-        elif sys.argv[2] == 'amazon':
-            pretrain_amazon(parser)
+    dataset_function_map = {
+        'aminer': pretrain_aminer,
+        'meetup': pretrain_meetup,
+        'amazon': pretrain_amazon,
+    }
+    if sys.argv[1] in ['aminer', 'meetup', 'amazon']:
+        dataset_function_map[sys.argv[1]](parser)
+    else:
+        print('Valid dataset are aminer, meetup, amazon')        
+
 
