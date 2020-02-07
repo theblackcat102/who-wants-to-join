@@ -48,10 +48,11 @@ class RankingTrainer():
             self.writer.add_text('Text', dict2table(vars(args)), 0)
 
 
-    def calculate_loss(self, outputs, batch, batch_size):
+    def calculate_loss(self, outputs, batch, batch_size, margin=5):
         # calculate triple ranking loss 
         total_neg = 0
         total_pos = 0
+        N = 0
         log_sigmoid = nn.LogSigmoid()
         # iterate through all datasets
         batch_size = torch.max(batch.batch)+1
@@ -66,8 +67,13 @@ class RankingTrainer():
             candidate_embed = outputs[ candidate_idx ]
             latent = candidate_embed.sum(0)
             target_embed = outputs[ (batch.y==1) & paper_idx]
+            shuffle_idx = list(range(len(target_embed)))
+            random.shuffle(shuffle_idx)
+            target_embed = target_embed[shuffle_idx]
 
             pos = log_sigmoid(torch.mm(latent.unsqueeze(-1).T, target_embed.T).flatten())
+
+            # pos = torch.mm(latent.unsqueeze(-1).T, target_embed.T).flatten()
             total_pos += pos.sum()
             # not label not known users and node type = user
             negative_node_idx = (batch.y == 0) & (batch.x[:, 1 ] == 0) & (batch.x[:, 2 ] == 0) & paper_idx
@@ -84,10 +90,12 @@ class RankingTrainer():
             negative_embed = negative_embed[shuffle_idx]
 
             # torch.dot(target_embed[0],  latent)
-            neg = log_sigmoid(-torch.mm(latent.unsqueeze(-1).T, negative_embed.T).flatten())
+            loss = (margin-torch.mm(latent.unsqueeze(-1).T, negative_embed.T).flatten()).clamp(min=0)
+            neg = log_sigmoid(loss)
             total_neg += neg.sum()
 
         loss = (total_pos+total_neg) / (batch_size*2)
+        # loss = total_neg/(N*2)#log_sigmoid(total_pos + total_neg)/ (batch_size*2)
         return -loss
     
     def inference(self, outputs, x, batch, top_k=10, user_size=874608):
