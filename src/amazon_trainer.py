@@ -54,7 +54,7 @@ class GroupGCN():
         if args.writer is True:
             self.log_path = osp.join(
                 "logs", "amazon",
-                'amazon_hete_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+                'amazon_hete_multi_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
         else:
             shutil.rmtree(TMP_WRITER_PATH, ignore_errors=True)
             self.log_path = TMP_WRITER_PATH

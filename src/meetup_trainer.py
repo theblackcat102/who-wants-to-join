@@ -65,7 +65,7 @@ class GroupGCN():
         if args.writer is True:
             self.log_path = osp.join(
                 "logs", "meetup",
-                args.dataset+'_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+                'multi'+'_'+args.dataset+'_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
         else:
             shutil.rmtree(TMP_WRITER_PATH, ignore_errors=True)
             self.log_path = TMP_WRITER_PATH

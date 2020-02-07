@@ -325,7 +325,7 @@ class GroupGCN():
 
         self.log_path = osp.join(
             "logs", "yahoo",
-            'yahoo_hete_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+            'multi_yahoo_hete_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
         self.writer = SummaryWriter(log_dir=self.log_path)
         self.save_path = osp.join(self.log_path, "models")
         os.makedirs(self.save_path, exist_ok=True)
