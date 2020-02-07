@@ -9,7 +9,7 @@ from src.aminer import Aminer
 
 dataset_classes = [AmazonCommunity, Meetup, Aminer]
 default_kwargs = dict(cutoff=2, min_size=5, max_size=100)
-meetup_city = ['SF']
+meetup_city = ['SF', 'NY']
 datasets = []
 for dataset_class in dataset_classes:
     if dataset_class == Meetup:
@@ -27,7 +27,7 @@ for dataset in datasets:
         dataset_name = type(dataset).__name__ + "_{}".format(dataset.city_id)
     else:
         dataset_name = type(dataset).__name__
-    print(dataset_name)
+    print(dataset_name + " start!")
     all_stats[dataset_name] = defaultdict(int)
     stats = all_stats[dataset_name]
     stats["dataset"] = dataset_name
@@ -42,7 +42,7 @@ for dataset in datasets:
         stats["num_edges"] += len(data.edge_index[1])
         stats["num_groups"] += data.num_graphs
         stats["num_member_nodes"] += len(data.x[data.x[:, -1] == 0, 0])
-    stats["avg_degree"] = stats["num_edges"] / stats["num_edges"]
+    stats["avg_degree"] = stats["num_edges"] / stats["num_nodes"]
     stats["avg_group_size"] = stats["num_member_nodes"] / stats["num_groups"]
     print(dataset_name+" finish!")
 

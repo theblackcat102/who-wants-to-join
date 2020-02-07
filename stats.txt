@@ -5,7 +5,7 @@
         "num_edges": 227916430,
         "num_groups": 38517,
         "num_member_nodes": 4852703,
-        "avg_degree": 1.0,
+        "avg_degree": 11.146834109161944,
         "avg_group_size": 125.98860243528831
     },
     "Meetup_94101": {
@@ -14,8 +14,17 @@
         "num_edges": 733309819,
         "num_groups": 765,
         "num_member_nodes": 7481246,
-        "avg_degree": 1.0,
+        "avg_degree": 15.586042858939763,
         "avg_group_size": 9779.406535947712
+    },
+    "Meetup_10001": {
+        "dataset": "Meetup_10001",
+        "num_nodes": 117112822,
+        "num_edges": 1824614165,
+        "num_groups": 1241,
+        "num_member_nodes": 18628576,
+        "avg_degree": 15.579969245382884,
+        "avg_group_size": 15010.939564867043
     },
     "Aminer": {
         "dataset": "Aminer",
@@ -23,7 +32,7 @@
         "num_edges": 1694822,
         "num_groups": 7297,
         "num_member_nodes": 530552,
-        "avg_degree": 1.0,
+        "avg_degree": 2.214709568158148,
         "avg_group_size": 72.70823626147732
     }
 }
