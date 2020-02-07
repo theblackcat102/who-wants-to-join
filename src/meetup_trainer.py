@@ -215,7 +215,6 @@ class GroupGCN():
                     pred_loss = criterion(node_pred[pred_mask], label[pred_mask])
                     loss = pred_loss + type_loss
 
-                    loss = criterion(output[pred_mask], label[pred_mask])
                     loss.backward()
 
                     optimizer.step()
