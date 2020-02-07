@@ -235,10 +235,11 @@ class GroupGCN():
                              self.save_path,
                              "best")
         model.load_state_dict(best_checkpoint["model"])
-        f1, recalls, precisions = self.evaluate(test_loader, model)
+        f1, recalls, precisions, loss = self.evaluate(test_loader, model)
         self.writer.add_scalar("Test/F1", f1, n_iter)
         self.writer.add_scalar("Test/Recalls", recalls, n_iter)
         self.writer.add_scalar("Test/Precisions", precisions, n_iter)
+        self.writer.add_scalar("Test/avg_BCEWithLogitsLoss", loss, n_iter)
         self.writer.flush()
 
         # clean tmp_writer
