@@ -75,7 +75,7 @@ class GroupGCN():
                 x, edge_index = val_data.x, val_data.edge_index
                 y = val_data.y
                 pred_mask = val_data.label_mask
-                pred = model(edge_index.cuda(), x.cuda())
+                pred, _ = model(edge_index.cuda(), x.cuda())
                 pred = torch.sigmoid(pred).cpu()
                 # y = y[pred_mask]
                 y_pred.zero_()
@@ -158,6 +158,7 @@ class GroupGCN():
         pos_weight = torch.ones([1])*weight
         pos_weight = pos_weight.cuda()
         criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        xentropy = torch.nn.CrossEntropyLoss()
 
         n_iter = 0
         best_f1 = 0
@@ -173,14 +174,18 @@ class GroupGCN():
                     edge_index = edge_index.cuda()
                     pred_mask = data.label_mask.cuda() == 1
                     label = data.y.unsqueeze(-1).cuda().float()
-                    output = model(edge_index, x)
 
-                    loss = criterion(output[pred_mask], label[pred_mask])
+                    node_pred, type_pred = model(edge_index, x)
+                    type_loss = xentropy(type_pred, x[:, -1])
+                    pred_loss = criterion(node_pred[pred_mask], label[pred_mask])
+                    loss = pred_loss + type_loss
                     loss.backward()
 
                     optimizer.step()
                     self.writer.add_scalar(
-                        "Train/BCEWithLogitsLoss", loss.item(), n_iter)
+                        "Train/BCEWithLogitsLoss", pred_loss.item(), n_iter)
+                    self.writer.add_scalar(
+                        "Train/CrossEntropyLoss", type_loss.item(), n_iter)
                     pbar.update(1)
                     pbar.set_description(
                         "loss {:.4f}, epoch {}".format(loss.item(), epoch))

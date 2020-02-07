@@ -98,10 +98,10 @@ class GroupGCN():
                 pred_mask = val_data.label_mask
                 label = val_data.y.unsqueeze(-1).cuda().float()
                 if isinstance(model, StackedGCNMeetupV2):
-                    pred = model(edge_index.cuda(), x.cuda(),
+                    pred, _ = model(edge_index.cuda(), x.cuda(),
                                  label_mask.cuda())
                 else:
-                    pred = model(edge_index.cuda(), x.cuda())
+                    pred, _ = model(edge_index.cuda(), x.cuda())
                 loss = criterion(pred[pred_mask], label[pred_mask])
                 pred = torch.sigmoid(pred).cpu()
                 y_pred.zero_()
@@ -156,6 +156,7 @@ class GroupGCN():
                                  num_workers=4)
         if args.label_mask:
             model_class = StackedGCNMeetupV2
+            print('v2')
         else:
             model_class = StackedGCNMeetup
         model = model_class(user_size=len(self.train_dataset.user2id),
@@ -203,16 +204,25 @@ class GroupGCN():
                     label_mask = label_mask.cuda()
                     pred_mask = data.label_mask.cuda() == 1
                     label = data.y.unsqueeze(-1).cuda().float()
+
                     if isinstance(model, StackedGCNMeetupV2):
-                        output = model(edge_index, x, label_mask)
+                        node_pred, type_pred = model(edge_index, x, label_mask)
                     else:
-                        output = model(edge_index, x)
+                        node_pred, type_pred = model(edge_index, x)
+
+                    x[ x[:, -1] == 4, -1 ] = 3
+                    type_loss = xentropy(type_pred, x[:, -1])
+                    pred_loss = criterion(node_pred[pred_mask], label[pred_mask])
+                    loss = pred_loss + type_loss
+
                     loss = criterion(output[pred_mask], label[pred_mask])
                     loss.backward()
 
                     optimizer.step()
                     self.writer.add_scalar(
-                            "Train/BCEWithLogitsLoss", loss.item(), n_iter)
+                        "Train/BCEWithLogitsLoss", pred_loss.item(), n_iter)
+                    self.writer.add_scalar(
+                        "Train/CrossEntropyLoss", type_loss.item(), n_iter)
                     pbar.update(1)
                     pbar.set_description(
                         "loss {:.4f}, epoch {}".format(loss.item(), epoch))
