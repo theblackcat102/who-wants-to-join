@@ -89,8 +89,8 @@ class GroupGCN():
         criterion = torch.nn.BCEWithLogitsLoss(pos_weight=self.pos_weight)
         print('Validation')
         with torch.no_grad():
-            y_pred = torch.FloatTensor(B, user_size)
-            y_target = torch.FloatTensor(B, user_size)
+            # y_pred = torch.FloatTensor(B, user_size)
+            # y_target = torch.FloatTensor(B, user_size)
             for val_data in tqdm(dataloader, dynamic_ncols=True):
                 x, edge_index, label_mask = (val_data.x, val_data.edge_index,
                                              val_data.label_mask)
@@ -104,19 +104,28 @@ class GroupGCN():
                     pred = model(edge_index.cuda(), x.cuda())
                 loss = criterion(pred[pred_mask], label[pred_mask])
                 pred = torch.sigmoid(pred).cpu()
+
+                mask_idx = (pred_mask == 1)#.nonzero().flatten()
+                B = val_data.batch.max()+1
+                y_pred = torch.FloatTensor(B, user_size)
+                y_target = torch.FloatTensor(B, user_size)
                 y_pred.zero_()
                 y_target.zero_()
+                pred = pred.squeeze(1)
+                for batch_idx in range(B):
+                    batch_idxes = (val_data.batch == batch_idx)
 
-                mask_idx = (pred_mask == 1).nonzero().flatten()
-                for idx, batch_idx in zip(mask_idx, val_data.batch[mask_idx]):
-                    if y[idx] == 1:
-                        y_target[batch_idx.data, x[idx][0]] = 1
-                    if pred[idx] > 0.5:
-                        y_pred[batch_idx.data, x[idx][0]] = 1
+                    target_idx  = (y == 1)
+                    x_idx = x[ batch_idxes & mask_idx & target_idx, 0 ]
+                    y_target[batch_idx, x_idx ] = 1
+
+                    target_idx  = (pred > 0.5)
+                    x_idx = x[ batch_idxes & mask_idx & target_idx, 0 ]
+                    y_pred[batch_idx, x_idx ] = 1
                 # consider last batch in dataloader for smaller batch size
-                y_pred_ = y_pred[:x.size(0)]
-                y_target_ = y_target[:x.size(0)]
-                TP, FP, TN, FN = confusion(y_pred_, y_target_)
+                # y_pred_ = y_pred[:x.size(0)]
+                # y_target_ = y_target[:x.size(0)]
+                TP, FP, TN, FN = confusion(y_pred, y_target)
 
                 recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
                 precision = 0 if (TP+FP) < 1e-5 else TP/(TP+FP)
@@ -147,11 +156,11 @@ class GroupGCN():
                                   shuffle=True,
                                   num_workers=4)
         valid_loader = DataLoader(self.valid_dataset,
-                                  batch_size=args.batch_size,
+                                  batch_size=args.batch_size//2,
                                   shuffle=False,
                                   num_workers=4)
         test_loader = DataLoader(self.test_dataset,
-                                 batch_size=args.batch_size,
+                                 batch_size=args.batch_size//2,
                                  shuffle=False,
                                  num_workers=4)
         if args.label_mask:
@@ -359,7 +368,7 @@ if __name__ == "__main__":
     # training parameters
     parser.add_argument('--epochs', type=int, default=200)
     parser.add_argument('--batch-size', type=int, default=8)
-    parser.add_argument('--lr', type=float, default=0.0005)
+    parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--pos-weight', type=float, default=-1)
     parser.add_argument('--eval', type=int, default=10)
     parser.add_argument('--save', type=int, default=50)
