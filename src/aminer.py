@@ -371,14 +371,14 @@ class Aminer(Dataset):
             self.data_folder = 'dblp_hete_base'
         self.cache_file_prefix = '{}_{}_{}_{}_3'.format(
             'dblp', self.cutoff, self.ratio, self.min_size)
-        self.processed_dir = osp.join(osp.join("processed", self.data_folder), 'processed')
+        temp = osp.join(osp.join("processed", self.data_folder), 'processed')
         match_filename = self.cache_file_prefix+'_*_v2.pt'
-        self.list_of_data = list(glob.glob(osp.join(self.processed_dir, match_filename)))
-
+        self.list_of_data = list(glob.glob(osp.join(temp, match_filename)))
         os.makedirs(osp.join(osp.join("processed", self.data_folder), 'processed'), exist_ok=True)
         super(Aminer, self).__init__(osp.join("processed", self.data_folder),
                                      transform=transform,
                                      pre_transform=None)
+        self.list_of_data = list(glob.glob(osp.join(self.processed_dir, match_filename)))
         self.process()
 
     @property
