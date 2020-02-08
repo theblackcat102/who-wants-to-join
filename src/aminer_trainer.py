@@ -8,6 +8,7 @@ import torch
 from torch.utils.tensorboard import SummaryWriter
 import pickle
 import os
+import json
 import os.path as osp
 import numpy as np
 from torch_geometric.nn.models.node2vec import Node2Vec

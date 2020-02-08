@@ -10,6 +10,7 @@ from torch.utils.tensorboard import SummaryWriter
 import pickle
 import os
 import os.path as osp
+import json
 import numpy as np
 from src.skipgram import SkipGramNeg, sample_walks
 from src.utils import dict2table, confusion, str2bool, TMP_WRITER_PATH
