@@ -7,6 +7,7 @@ import os.path as osp
 import torch.nn as nn
 import torch
 import pickle
+from copy import deepcopy
 from tqdm import tqdm
 from src.utils import dict2table, confusion, str2bool
 from torch.utils.tensorboard import SummaryWriter
@@ -271,9 +272,29 @@ def evaluate_dblp(parser):
         model.load_state_dict(weight)
 
     dataset = Aminer()
-    trainer = RankingTrainer('aminer',model, dataset, shuffle_idx, 
-        user_size=874608, top_k=args.top_k, args=args)
-    return trainer.train(epochs=args.epochs, batch_size=args.batch_size), vars(args)
+    values = {
+            'f1': [],
+            'recall': [],
+            'precision': [],
+            'loss': []
+        }
+    for i in range(args.repeat_n):
+        trainer = RankingTrainer('aminer',model, dataset, shuffle_idx, 
+            user_size=874608, top_k=args.top_k, args=args)
+        f1, recalls, precisions, loss = trainer.train(epochs=args.epochs, batch_size=args.batch_size)
+        values['f1'].append(f1)
+        values['recall'].append(recalls)
+        values['precision'].append(precisions)
+        values['loss'].append(loss)
+
+    results = {}
+    for key, value in values.items():
+        results['avg_'+key] = np.mean(value)
+        results['std_'+key] = np.std(value)
+    results['results'] = values
+    results['arguments'] = vars(args)
+    with open('cf_rank_'+sys.argv[1]+'_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S")+'_.json', 'w') as f:
+        json.dump(results, f, indent=4, sort_keys=True)
 
 def evaluate_meetup(parser):
     print("Meetup")
@@ -321,9 +342,30 @@ def evaluate_meetup(parser):
         weight = torch.load(args.weights)
         model.load_state_dict(weight)
 
-    trainer = RankingTrainer('meetup_'+str(args.city)+'_', model, dataset, shuffle_idx, 
-        user_size=len(dataset.user2id), top_k=args.top_k, args=args)
-    return trainer.train(epochs=args.epochs, batch_size=8), vars(args)
+    values = {
+            'f1': [],
+            'recall': [],
+            'precision': [],
+            'loss': []
+        }
+    for i in range(args.repeat_n):
+
+        trainer = RankingTrainer('meetup_'+str(args.city)+'_', model, dataset, shuffle_idx, 
+            user_size=len(dataset.user2id), top_k=args.top_k, args=args)
+        f1, recalls, precisions, loss = trainer.train(epochs=args.epochs, batch_size=args.batch_size)
+        values['f1'].append(f1)
+        values['recall'].append(recalls)
+        values['precision'].append(precisions)
+        values['loss'].append(loss)
+
+    results = {}
+    for key, value in values.items():
+        results['avg_'+key] = np.mean(value)
+        results['std_'+key] = np.std(value)
+    results['results'] = values
+    results['arguments'] = vars(args)
+    with open('cf_rank_'+sys.argv[1]+'_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S")+'_.json', 'w') as f:
+        json.dump(results, f, indent=4, sort_keys=True)
 
 
 def evaluate_amazon(parser):
@@ -365,9 +407,32 @@ def evaluate_amazon(parser):
         weight = torch.load(args.weights)
         model.load_state_dict(weight)
 
-    trainer = RankingTrainer('amazon_', model, dataset, shuffle_idx, 
-        user_size=len(dataset.user2id), top_k=args.top_k, args=args)
-    return trainer.train(epochs=args.epochs, batch_size=args.batch_size), vars(args)
+
+    values = {
+            'f1': [],
+            'recall': [],
+            'precision': [],
+            'loss': []
+        }
+    for i in range(args.repeat_n):
+        trainer = RankingTrainer('amazon_', model, dataset, shuffle_idx, 
+            user_size=len(dataset.user2id), top_k=args.top_k, args=args)
+        f1, recalls, precisions, loss = trainer.train(epochs=args.epochs, batch_size=args.batch_size)
+        values['f1'].append(f1)
+        values['recall'].append(recalls)
+        values['precision'].append(precisions)
+        values['loss'].append(loss)
+
+    results = {}
+    for key, value in values.items():
+        results['avg_'+key] = np.mean(value)
+        results['std_'+key] = np.std(value)
+    results['results'] = values
+    results['arguments'] = vars(args)
+    with open('cf_rank_'+sys.argv[1]+'_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S")+'_.json', 'w') as f:
+        json.dump(results, f, indent=4, sort_keys=True)
+
+
 
 if __name__ == "__main__":
     import argparse
@@ -387,29 +452,8 @@ if __name__ == "__main__":
     parser.add_argument('--repeat-n', type=int, default=1)
 
     if sys.argv[1] in ['aminer', 'meetup', 'amazon']:
-        values = {
-            'f1': [],
-            'recall': [],
-            'precision': [],
-            'loss': []
-        }
-        args = parser.parse_args()
-
-        for i in range(args.repeat_n):
-            f1, recalls, precisions, loss, args = dataset_function_map[sys.argv[1]](parser)
-            values['f1'].append(f1)
-            values['recall'].append(recalls)
-            values['precision'].append(precisions)
-            values['loss'].append(loss)
-
-        results = {}
-        for key, value in values.items():
-            results['avg_'+key] = np.mean(value)
-            results['std_'+key] = np.std(value)
-        results['results'] = values
-        results['arguments'] = vars(args)
-        with open('cf_rank_'+sys.argv[1]+'_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S")+'_.json', 'w') as f:
-            json.dump(results, f, indent=4, sort_keys=True)
+        dataset_function_map[sys.argv[1]](parser)    
     else:
         print('Valid dataset are aminer, meetup, amazon')        
+
 
