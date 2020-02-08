@@ -78,8 +78,6 @@ class GroupGCN():
         criterion = torch.nn.BCEWithLogitsLoss(pos_weight=self.pos_weight)
         print('Validation')
         with torch.no_grad():
-            y_pred = torch.FloatTensor(B, user_size)
-            y_target = torch.FloatTensor(B, user_size)
             for val_data in tqdm(dataloader, dynamic_ncols=True):
                 x, edge_index, label_mask = (val_data.x, val_data.edge_index,
                                              val_data.label_mask)
@@ -93,8 +91,6 @@ class GroupGCN():
                     pred, _ = model(edge_index.cuda(), x.cuda())
                 loss = criterion(pred[pred_mask], label[pred_mask])
                 pred = torch.sigmoid(pred).cpu()
-                y_pred.zero_()
-                y_target.zero_()
 
                 mask_idx = (pred_mask == 1)#.nonzero().flatten()
                 B = val_data.batch.max()+1
