@@ -95,13 +95,6 @@ class GroupGCN():
                     x_idx = x[ batch_idxes & mask_idx & target_idx, 0 ]
                     y_pred[batch_idx, x_idx ] = 1
 
-                # for idx, batch_idx in zip(mask_idx,val_data.batch[mask_idx]):
-                #     if y[idx] == 1:
-                #         y_target[batch_idx.data, x[idx][0]] = 1
-                #     if pred[idx] > 0.5:
-                #         y_pred[batch_idx.data, x[idx][0]] = 1
-
-
 
                 TP, FP, TN, FN = confusion(y_pred, y_target)
 
