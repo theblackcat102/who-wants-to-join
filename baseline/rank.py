@@ -223,12 +223,13 @@ class RankingTrainer():
                         }
                     print(f1)
         model.load_state_dict(best_checkpoint["model"])
-        f1, recalls, precisions, _ = self.evaluate(test_loader, model)    
+        f1, recalls, precisions, loss = self.evaluate(test_loader, model)    
         print(f1, recalls, precisions)
         self.writer.add_scalar("Test/F1", f1, n_iter)
         self.writer.add_scalar("Test/Recalls", recalls, n_iter)
         self.writer.add_scalar("Test/Precisions", precisions, n_iter)
         self.writer.flush()
+        return f1, recalls, precisions, loss
 
 def evaluate_dblp(parser):
     print("Aminer")
@@ -272,7 +273,7 @@ def evaluate_dblp(parser):
     dataset = Aminer()
     trainer = RankingTrainer('aminer',model, dataset, shuffle_idx, 
         user_size=874608, top_k=args.top_k, args=args)
-    trainer.train(epochs=args.epochs)
+    return trainer.train(epochs=args.epochs, batch_size=args.batch_size), vars(args)
 
 def evaluate_meetup(parser):
     print("Meetup")
@@ -322,8 +323,7 @@ def evaluate_meetup(parser):
 
     trainer = RankingTrainer('meetup_'+str(args.city)+'_', model, dataset, shuffle_idx, 
         user_size=len(dataset.user2id), top_k=args.top_k, args=args)
-    trainer.train(epochs=args.epochs, batch_size=8)
-
+    return trainer.train(epochs=args.epochs, batch_size=8), vars(args)
 
 
 def evaluate_amazon(parser):
@@ -367,7 +367,7 @@ def evaluate_amazon(parser):
 
     trainer = RankingTrainer('amazon_', model, dataset, shuffle_idx, 
         user_size=len(dataset.user2id), top_k=args.top_k, args=args)
-    trainer.train(epochs=args.epochs, batch_size=16)
+    return trainer.train(epochs=args.epochs, batch_size=args.batch_size), vars(args)
 
 if __name__ == "__main__":
     import argparse
@@ -381,10 +381,35 @@ if __name__ == "__main__":
     parser.add_argument('dataset', type=str, default='aminer', choices=['aminer', 'meetup', 'amazon'])
     parser.add_argument('--top-k', type=int, default=5)
     parser.add_argument('--epochs', type=int, default=50)
-    parser.add_argument('--weights', type=str, default='')
+    parser.add_argument('--batch-size', type=int, default=32)
+    parser.add_argument('--weights', type=str, default='', 
+        help='load pretrain GNN weights')
+    parser.add_argument('--repeat-n', type=int, default=1)
 
     if sys.argv[1] in ['aminer', 'meetup', 'amazon']:
-        dataset_function_map[sys.argv[1]](parser)
+        values = {
+            'f1': [],
+            'recall': [],
+            'precision': [],
+            'loss': []
+        }
+        args = parser.parse_args()
+
+        for i in range(args.repeat_n):
+            f1, recalls, precisions, loss, args = dataset_function_map[sys.argv[1]](parser)
+            values['f1'].append(f1)
+            values['recall'].append(recalls)
+            values['precision'].append(precisions)
+            values['loss'].append(loss)
+
+        results = {}
+        for key, value in values.items():
+            results['avg_'+key] = np.mean(value)
+            results['std_'+key] = np.std(value)
+        results['results'] = values
+        results['arguments'] = vars(args)
+        with open('cf_rank_'+sys.argv[1]+'_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S")+'_.json', 'w') as f:
+            json.dump(results, f, indent=4, sort_keys=True)
     else:
         print('Valid dataset are aminer, meetup, amazon')        
 
