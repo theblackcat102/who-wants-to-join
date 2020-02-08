@@ -7,6 +7,7 @@ from tqdm import tqdm
 import torch
 from torch.utils.tensorboard import SummaryWriter
 import pickle
+import json
 import os
 import os.path as osp
 import numpy as np
@@ -240,6 +241,7 @@ class GroupGCN():
         self.writer.add_scalar("Test/Recalls", recalls, n_iter)
         self.writer.add_scalar("Test/Precisions", precisions, n_iter)
         self.writer.flush()
+        return f1, recalls, precisions
 
     def pretrain_embeddings(self, model, batch_size, epoch_num=1, neg_num=20):
         import torch.optim as optim
@@ -331,8 +333,29 @@ if __name__ == "__main__":
     parser.add_argument('--input-dim', type=int, default=32)
     parser.add_argument('--dropout', type=float, default=0.1)
     parser.add_argument('--layers', nargs='+', type=int, default=[32, 32])
-
+    parser.add_argument('--repeat-n', type=int, default=1)
     args = parser.parse_args()
 
-    trainer = GroupGCN(args)
-    trainer.train(epochs=args.epochs)
+    # trainer = GroupGCN(args)
+    # trainer.train(epochs=args.epochs)
+    values = {
+        'f1': [],
+        'recall': [],
+        'precision': [],
+    }
+
+    for i in range(args.repeat_n):
+        trainer = GroupGCN(args)
+        f1, recalls, precisions = trainer.train(epochs=args.epochs)
+        values['f1'].append(f1)
+        values['recall'].append(recalls)
+        values['precision'].append(precisions)
+
+    results = {}
+    for key, value in values.items():
+        results['avg_'+key] = np.mean(value)
+        results['std_'+key] = np.std(value)
+    results['results'] = values
+    results['arguments'] = vars(args)
+    with open('aminer_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S")+'_.json', 'w') as f:
+        json.dump(results, f, indent=4, sort_keys=True)
