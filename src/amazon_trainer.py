@@ -93,7 +93,7 @@ class GroupGCN():
                 loss = criterion(pred[pred_mask], label[pred_mask])
                 pred = torch.sigmoid(pred).cpu()
 
-                mask_idx = (pred_mask == 1)#.nonzero().flatten()
+                mask_idx = (pred_mask == 1)
                 B = val_data.batch.max()+1
                 y_pred = torch.FloatTensor(B, user_size)
                 y_target = torch.FloatTensor(B, user_size)
