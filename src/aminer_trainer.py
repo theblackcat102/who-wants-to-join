@@ -87,13 +87,23 @@ class GroupGCN():
                 #             y_target[batch_idx.data, x[idx][0]] = 1
                 #         if pred[idx] > 0.5:
                 #             y_pred[batch_idx.data, x[idx][0]] = 1
-                mask_idx = (pred_mask == 1).nonzero().flatten()
-                for idx, batch_idx in zip(mask_idx,val_data.batch[mask_idx]):
-                    if y[idx] == 1:
-                        y_target[batch_idx.data, x[idx][0]] = 1
-                    if pred[idx] > 0.5:
-                        y_pred[batch_idx.data, x[idx][0]] = 1
+                mask_idx = (pred_mask == 1)#.nonzero().flatten()
+                B = val_data.batch.max()+1
+                y_pred = torch.FloatTensor(B, user_size)
+                y_target = torch.FloatTensor(B, user_size)
+                y_pred.zero_()
+                y_target.zero_()
+                pred = pred.squeeze(1)
+                for batch_idx in range(B):
+                    batch_idxes = (val_data.batch == batch_idx)
 
+                    target_idx  = (y == 1)
+                    x_idx = x[ batch_idxes & mask_idx & target_idx, 0 ]
+                    y_target[batch_idx, x_idx ] = 1
+
+                    target_idx  = (pred > 0.5)
+                    x_idx = x[ batch_idxes & mask_idx & target_idx, 0 ]
+                    y_pred[batch_idx, x_idx ] = 1
 
 
                 TP, FP, TN, FN = confusion(y_pred, y_target)
