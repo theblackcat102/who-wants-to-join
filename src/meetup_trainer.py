@@ -11,6 +11,7 @@ import pickle
 import os
 import os.path as osp
 import numpy as np
+import json
 import multiprocessing as mp
 from src.skipgram import SkipGramNeg, sample_walks
 from src.utils import dict2table, confusion, str2bool, TMP_WRITER_PATH
