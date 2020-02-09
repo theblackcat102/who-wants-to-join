@@ -224,6 +224,24 @@ class RankingTrainer():
                             'f1': f1
                         }
                     print(f1)
+
+        f1, recalls, precisions, val_loss = self.evaluate(valid_loader, model, 
+            user_size=self.user_size)
+        self.writer.add_scalar(
+            "Val/loss", val_loss.item(), n_iter)
+        self.writer.add_scalar("Val/F1", f1, n_iter)
+        self.writer.add_scalar("Val/Recalls", recalls, n_iter)
+        self.writer.add_scalar("Val/Precisions", precisions, n_iter)
+
+        if f1 > best_f1:
+            best_f1 = f1
+            best_checkpoint = {
+                'epoch': epoch+1,
+                'model': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'f1': f1
+            }
+        print(f1)
         model.load_state_dict(best_checkpoint["model"])
         f1, recalls, precisions, loss = self.evaluate(test_loader, model)    
         print(f1, recalls, precisions)
