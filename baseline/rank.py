@@ -1,6 +1,6 @@
 from src.aminer import Aminer
 from torch_geometric.data import DataLoader
-from src.layers import StackedGCNDBLP
+from baseline.models import StackedGCNDBLP
 from datetime import datetime
 import os, sys
 import os.path as osp
@@ -175,14 +175,17 @@ class RankingTrainer():
     def train(self, batch_size=64, epochs=50):
         train_loader = DataLoader(self.train_dataset,
                                   batch_size=batch_size,
-                                  shuffle=True, drop_last=False)
+                                  shuffle=True, drop_last=False,
+                                  num_workers=6)
         valid_loader = DataLoader(self.valid_dataset,
                                   batch_size=batch_size,
-                                  shuffle=False)
+                                  shuffle=False,
+                                  num_workers=6)
         self.batch_size = batch_size
         test_loader = DataLoader(self.test_dataset,
                                  batch_size=batch_size,
-                                 shuffle=False)
+                                 shuffle=False,
+                                 num_workers=6)
         best_f1 = 0
         model = self.model
         model = model.cuda()
@@ -318,7 +321,7 @@ def evaluate_dblp(parser):
 
 def evaluate_meetup(parser):
     print("Meetup")
-    from src.layers import StackedGCNMeetup
+    from baseline.models import StackedGCNMeetup
     from src.meetup import Meetup, locations_id, MEETUP_FOLDER
     group = parser.add_argument_group('arguments')
     group.add_argument('--city', type=str, default='SF',
@@ -390,7 +393,7 @@ def evaluate_meetup(parser):
 
 def evaluate_amazon(parser):
     print("Amazon")
-    from src.layers import StackedGCNAmazon
+    from baseline.models import StackedGCNAmazon
     from src.amazon import AmazonCommunity
     group = parser.add_argument_group('arguments')
     group.add_argument('--user-dim', type=int, default=16)
