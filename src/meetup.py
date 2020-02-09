@@ -364,9 +364,9 @@ class Meetup(Dataset):
             with open(osp.join(MEETUP_FOLDER, group2id_name), 'rb') as f:
                 self.group2id = pickle.load(f)
         match_filename = self.cache_file_prefix + '_*_v2.pt'
-        self.processed_dir = osp.join("processed", str(self.city_id),
+        temp = osp.join("processed", str(self.city_id),
                                       'processed')
-        self.processed_file_idx = sorted(list(glob.glob(osp.join(self.processed_dir,
+        self.processed_file_idx = sorted(list(glob.glob(osp.join(temp,
                                                           match_filename))))
 
         super(Meetup, self).__init__(osp.join("processed", str(city_id)),

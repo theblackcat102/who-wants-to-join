@@ -223,7 +223,20 @@ class GroupGCN():
                         self.save_path,
                         "{}".format(epoch+1)
                     )
-
+        f1, recalls, precisions = self.evaluate(valid_loader, model)
+        self.writer.add_scalar("Valid/F1", f1, n_iter)
+        self.writer.add_scalar("Valid/Recalls", recalls, n_iter)
+        self.writer.add_scalar("Valid/Precisions", precisions,
+                                n_iter)
+        if f1 > best_f1:
+            best_f1 = f1
+            best_checkpoint = {
+                'epoch': epoch+1,
+                'model': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'f1': f1
+            }
+        print(f1)
         print("Testing")
         self.save_checkpoint(best_checkpoint,
                              self.save_path,
