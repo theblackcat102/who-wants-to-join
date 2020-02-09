@@ -381,7 +381,7 @@ if __name__ == "__main__":
     # model parameters
     parser.add_argument('--input-dim', type=int, default=8)
     parser.add_argument('--dropout', type=float, default=0.1)
-    parser.add_argument('--layers', nargs='+', type=int, default=[8, 8, 8])
+    parser.add_argument('--layers', nargs='+', type=int, default=[8, 8])
     parser.add_argument('--repeat-n', type=int, default=1)
     # debug
     parser.add_argument('--writer', type=str2bool, nargs='?', default=True)
