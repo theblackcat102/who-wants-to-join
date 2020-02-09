@@ -364,5 +364,5 @@ if __name__ == "__main__":
         results['std_'+key] = np.std(value)
     results['results'] = values
     results['arguments'] = vars(args)
-    with open('aminer_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S")+'_.json', 'w') as f:
+    with open('aminer_node_class'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S")+'_.json', 'w') as f:
         json.dump(results, f, indent=4, sort_keys=True)
