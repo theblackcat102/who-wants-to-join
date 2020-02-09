@@ -231,7 +231,7 @@ class RankingTrainer():
         self.writer.add_scalar("Test/Recalls", recalls, n_iter)
         self.writer.add_scalar("Test/Precisions", precisions, n_iter)
         self.writer.flush()
-        return f1, recalls, precisions, loss
+        return f1, recalls, precisions, loss.data
 
 def evaluate_dblp(parser):
     print("Aminer")
@@ -286,7 +286,7 @@ def evaluate_dblp(parser):
         values['f1'].append(f1)
         values['recall'].append(recalls)
         values['precision'].append(precisions)
-        values['loss'].append(loss)
+        values['loss'].append(float(loss))
 
     results = {}
     for key, value in values.items():
@@ -357,7 +357,7 @@ def evaluate_meetup(parser):
         values['f1'].append(f1)
         values['recall'].append(recalls)
         values['precision'].append(precisions)
-        values['loss'].append(loss)
+        values['loss'].append(float(loss))
 
     results = {}
     for key, value in values.items():
@@ -422,7 +422,7 @@ def evaluate_amazon(parser):
         values['f1'].append(f1)
         values['recall'].append(recalls)
         values['precision'].append(precisions)
-        values['loss'].append(loss)
+        values['loss'].append(float(loss))
 
     results = {}
     for key, value in values.items():
