@@ -32,9 +32,10 @@ class RankingTrainer():
         split_pos = int(len(dataset)*0.7)
         train_idx = shuffle_idx[:split_pos]
         valid_idx_ = shuffle_idx[split_pos:]
-        test_pos = int(len(valid_idx_)*0.333)
-        test_idx = valid_idx_[:test_pos]
-        valid_idx = valid_idx_[test_pos:]
+        # 7: 1: 2 ; train : valid : test
+        valid_pos = int(len(valid_idx_)*0.3333)
+        valid_idx = valid_idx_[:valid_pos]
+        test_idx = valid_idx_[valid_pos:]
 
         self.train_dataset = dataset[train_idx]
         self.test_dataset = dataset[test_idx]
