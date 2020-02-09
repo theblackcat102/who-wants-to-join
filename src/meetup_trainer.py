@@ -368,7 +368,7 @@ if __name__ == "__main__":
     parser.add_argument('--pred-ratio', type=float, default=0.8)
     parser.add_argument('--maxhop', type=int, default=2)
     # training parameters
-    parser.add_argument('--epochs', type=int, default=200)
+    parser.add_argument('--epochs', type=int, default=150)
     parser.add_argument('--batch-size', type=int, default=8)
     parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--pos-weight', type=float, default=-1)
@@ -379,9 +379,9 @@ if __name__ == "__main__":
     parser.add_argument('--label-mask', type=str2bool, nargs='?',
                         default=False, help="add label_mask as input")
     # model parameters
-    parser.add_argument('--input-dim', type=int, default=8)
+    parser.add_argument('--input-dim', type=int, default=16)
     parser.add_argument('--dropout', type=float, default=0.1)
-    parser.add_argument('--layers', nargs='+', type=int, default=[8, 8])
+    parser.add_argument('--layers', nargs='+', type=int, default=[16, 16])
     parser.add_argument('--repeat-n', type=int, default=1)
     # debug
     parser.add_argument('--writer', type=str2bool, nargs='?', default=True)
