@@ -156,11 +156,11 @@ class GroupGCN():
                                   shuffle=True,
                                   num_workers=6)
         valid_loader = DataLoader(self.valid_dataset,
-                                  batch_size=args.batch_size,
+                                  batch_size=args.batch_size//2,
                                   shuffle=False,
                                   num_workers=6)
         test_loader = DataLoader(self.test_dataset,
-                                 batch_size=args.batch_size,
+                                 batch_size=args.batch_size//2,
                                  shuffle=False,
                                  num_workers=6)
         if args.label_mask:
@@ -377,7 +377,7 @@ if __name__ == "__main__":
     parser.add_argument('--maxhop', type=int, default=2)
     # training parameters
     parser.add_argument('--epochs', type=int, default=200)
-    parser.add_argument('--batch-size', type=int, default=8)
+    parser.add_argument('--batch-size', type=int, default=16)
     parser.add_argument('--lr', type=float, default=0.0005)
     parser.add_argument('--pos-weight', type=float, default=-1)
     parser.add_argument('--eval', type=int, default=10)
