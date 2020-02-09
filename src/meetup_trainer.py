@@ -157,11 +157,11 @@ class GroupGCN():
                                   shuffle=True,
                                   num_workers=6)
         valid_loader = DataLoader(self.valid_dataset,
-                                  batch_size=args.batch_size//2,
+                                  batch_size=args.batch_size//3,
                                   shuffle=False,
                                   num_workers=6)
         test_loader = DataLoader(self.test_dataset,
-                                 batch_size=args.batch_size//2,
+                                 batch_size=args.batch_size//3,
                                  shuffle=False,
                                  num_workers=6)
         if args.label_mask:
@@ -420,5 +420,5 @@ if __name__ == "__main__":
         results['std_'+key] = np.std(value)
     results['results'] = values
     results['arguments'] = vars(args)
-    with open('amazon_hete_multi_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S")+'_.json', 'w') as f:
+    with open('meetup_multi_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S")+'_.json', 'w') as f:
         json.dump(results, f, indent=4, sort_keys=True)
