@@ -101,7 +101,7 @@ def pretrain_aminer(parser):
     group.add_argument('--input-dim', type=int, default=32)
     group.add_argument('--dropout', type=float, default=0.1)
     group.add_argument('--layers', nargs='+', type=int, default=[32, 32])
-    group.add_argument('--output-dim',type=int, default=8)
+    group.add_argument('--output-dim',type=int, default=16)
 
     args = parser.parse_args()
     device = torch.device("cuda:" + str(args.device)) if torch.cuda.is_available() else torch.device("cpu")
@@ -233,7 +233,7 @@ def pretrain_amazon(parser):
     group.add_argument('--maxhop', type=int, default=2)
     group.add_argument('--input-dim', type=int, default=32)
     group.add_argument('--dropout', type=float, default=0.1)
-    group.add_argument('--layers', nargs='+', type=int, default=[32, 32])
+    group.add_argument('--layers', nargs='+', type=int, default=[32, 32, 32])
     group.add_argument('--output-dim',type=int, default=8)
     args = parser.parse_args()
     device = torch.device("cuda:" + str(args.device)) if torch.cuda.is_available() else torch.device("cpu")
@@ -259,6 +259,7 @@ def pretrain_amazon(parser):
                                  user_dim=args.user_dim,
                                  category_dim=args.cat_dim,
                                  input_channels=args.input_dim,
+                                 output_channels=32,
                                  layers=args.layers,
                                  dropout=args.dropout).to(device)
     model_context = StackedGCNAmazon(len(dataset.user2id),
@@ -266,7 +267,8 @@ def pretrain_amazon(parser):
                                  user_dim=args.user_dim,
                                  category_dim=args.cat_dim,
                                  input_channels=args.input_dim,
-                                 layers=args.layers,
+                                 layers=[16, 16],
+                                 output_channels=32,
                                  dropout=args.dropout).to(device)
 
     optimizer_substruct = optim.Adam(model_substruct.parameters(), lr=args.lr, weight_decay=args.decay)
