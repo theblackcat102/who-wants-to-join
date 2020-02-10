@@ -262,11 +262,32 @@ def create_subgraph(paper, G, exist_ratio=0.8, cutoff=3):
         basic_attributes = {}
         basic_attributes['type'] = node[0]
         basic_attributes['id'] = int(node[1:])
-        basic_attributes['in_group'] = in_group
+        # within known group
+        basic_attributes['in_group'] = known_member
         basic_attributes['predict'] = predict
         basic_attributes['known'] = known_member
         sub_G.add_node(node, **basic_attributes)
-    
+
+    basic_attributes = {}
+    basic_attributes['type'] = 'p'
+    basic_attributes['id'] = paper['title']
+    basic_attributes['in_group'] = 1
+    basic_attributes['predict'] = 0
+    basic_attributes['known'] = 0
+    sub_G.add_node('p'+str(paper['title']), **basic_attributes)
+
+    basic_attributes = {}
+    basic_attributes['type'] = 'c'
+    basic_attributes['id'] = paper['conf']
+    basic_attributes['in_group'] = 1
+    basic_attributes['predict'] = 0
+    basic_attributes['known'] = 0
+    sub_G.add_node('c'+str(paper['conf']), **basic_attributes)
+
+    for node in exist_nodes:
+        sub_G.add_edge(node, 'c'+str(paper['conf']))
+        sub_G.add_edge(node, 'p'+str(paper['title']))
+
     for node in sub_graph_nodes:
         for n in G.neighbors(node):
             if node == paper['title'] and n in predict_nodes:
@@ -276,6 +297,7 @@ def create_subgraph(paper, G, exist_ratio=0.8, cutoff=3):
 
             if sub_G.has_node(node) and sub_G.has_node(n):
                 sub_G.add_edge(node, n)
+
     return sub_G, hit, predict_ratio
 
 def graph2data(G, titleid):
@@ -294,20 +316,26 @@ def graph2data(G, titleid):
     nodes = []
     edges = []
     labels = []
+    inputs = []
     loss_mask = []
 
     for n in G.nodes:
         node_type = 0
-        if G.nodes[n]['type'] == 'a':
+        node_attributes = G.nodes[n]
+        if 'in_group' in node_attributes:
+            inputs.append(node_attributes['in_group'])
+        else:
+            inputs.append(0)
+        if node_attributes['type'] == 'a':
             node_type = 0
-        elif G.nodes[n]['type'] == 'p':
+        elif node_attributes['type'] == 'p':
             node_type = 1
-        elif G.nodes[n]['type'] == 'c':
+        elif node_attributes['type'] == 'c':
             node_type = 2
 
         node_latent = Variable(
             torch.from_numpy(
-                np.array([G.nodes[n]['id'], G.nodes[n]['known'], node_type])))
+                np.array([node_attributes['id'], node_attributes['known'], node_type])))
 
         edge_index = list(G.edges(n))
         new_edges = []
@@ -330,14 +358,15 @@ def graph2data(G, titleid):
         else:
             loss_mask.append(0)
 
-        labels.append(G.nodes[n]['predict'])
+        labels.append(node_attributes['predict'])
 
     x = torch.stack(nodes)
     y = torch.from_numpy(np.array(labels))
+    input_mask = torch.from_numpy(np.array(inputs))
     loss_mask = torch.from_numpy(np.array(loss_mask))
     edges = torch.from_numpy(np.transpose(np.concatenate(edges))).contiguous()
 
-    data = Data(x=x, edge_index=edges, y=y, label_mask=loss_mask, 
+    data = Data(x=x, edge_index=edges, y=y, label_mask=loss_mask, input_mask=input_mask,
         titleid=torch.from_numpy(np.array([titleid])))
     # add output mask to mask additional nodes : category, venue, topic node
     return data
@@ -373,7 +402,7 @@ class Aminer(Dataset):
             'dblp', self.cutoff, self.ratio, self.min_size)
         temp = osp.join(osp.join("processed", self.data_folder), 'processed')
         match_filename = self.cache_file_prefix+'_*_v2.pt'
-        self.list_of_data = list(glob.glob(osp.join(temp, match_filename)))
+        self.processed_file_idx = list(glob.glob(osp.join(temp, match_filename)))
 
         os.makedirs(osp.join(osp.join("processed", self.data_folder), 'processed'), exist_ok=True)
         super(Aminer, self).__init__(osp.join("processed", self.data_folder),
@@ -383,7 +412,7 @@ class Aminer(Dataset):
 
     @property
     def processed_file_names(self):
-        return self.list_of_data
+        return self.processed_file_idx
 
     def _download(self):
         pass
@@ -408,7 +437,7 @@ class Aminer(Dataset):
 
 
     def __len__(self):
-        return len(self.processed_file_names)
+        return len(self.processed_file_idx)
 
     def init_preprocessing(self):
         with open('aminer/preprocess_dblp.pkl', 'rb') as f:
@@ -443,6 +472,10 @@ class Aminer(Dataset):
 
             async_postprocessing(paper, H.copy(), idx, self.processed_dir, self.cache_file_prefix,
                 cutoff=self.cutoff)
+            # args = [
+            #     paper, H.copy(), idx, self.processed_dir, self.cache_file_prefix
+            # ]
+            # kwds = {'cutoff': self.cutoff}
             # res = pool.apply_async(async_postprocessing, args=args, kwds=kwds)
             # results.append(res)
             if self.baseline:
@@ -451,23 +484,23 @@ class Aminer(Dataset):
                 H = append_paper_graph(H, deepcopy(p), paper2id, conf2id, 
                     author2id, citation_graph, index2title)
 
-            # if idx % 200 == 0 and idx != 0:
-            #     sleep(10)
+            if idx % 200 == 0 and idx != 0:
+                sleep(10)
 
         for res in results:
             res.get()
         match_filename = self.cache_file_prefix+'_*_v2.pt'
-        self.list_of_data = list(glob.glob(osp.join(self.processed_dir, match_filename)))
+        self.processed_file_idx = list(glob.glob(osp.join(self.processed_dir, match_filename)))
 
     def get(self, idx):
         if isinstance(idx, list):
             new_self = deepcopy(self)
             new_self.processed_file_idx = np.array(self.processed_file_idx)[idx]
             return new_self
-        filename = self.processed_file_names[idx]
+        filename = self.processed_file_idx[idx]
         data = torch.load(filename)
+        data.size = torch.from_numpy(np.array([len(data.x)]))
         return data
-
 
 if __name__ == "__main__":
     # init_dblp()

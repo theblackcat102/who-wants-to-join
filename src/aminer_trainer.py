@@ -1,5 +1,4 @@
 from datetime import datetime
-from src.layers import StackedGCNDBLP
 from src.aminer import Aminer
 from torch_geometric.data import DataLoader
 import random
@@ -11,11 +10,15 @@ import json
 import os
 import os.path as osp
 import numpy as np
+import torch.nn as nn
 from torch_geometric.nn.models.node2vec import Node2Vec
 from src.skipgram import generate_batch, SkipGramNeg, data_to_networkx_, sample_walks
 from src.utils import dict2table, confusion, str2bool
+from src.hint import HINT, obtain_loss_mask, output2seq, masked_softmax
 
-class GroupGCN():
+PAD_ID = 874608
+
+class HINT_Trainer():
     def __init__(self, args):
         dataset = Aminer(cutoff=args.maxhop,
             min_size=args.min_size, max_size=args.max_size,
@@ -42,18 +45,19 @@ class GroupGCN():
         valid_idx_ = shuffle_idx[split_pos:]
         # 7: 1: 2 ; train : valid : test
         valid_pos = int(len(valid_idx_)*0.3333)
-        valid_idx = valid_idx_[:valid_pos]
+        valid_idx = valid_idx_[:100]
         test_idx = valid_idx_[valid_pos:]
 
         self.train_dataset = dataset[train_idx]
         self.test_dataset = dataset[test_idx]
         self.valid_dataset = dataset[valid_idx]
 
+
         self.args = args
 
         self.log_path = osp.join(
             "logs", "aminer",
-            'multi_dblp_hete_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+            'hint_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
         self.writer = SummaryWriter(log_dir=self.log_path)
         self.save_path = osp.join(self.log_path, "models")
         os.makedirs(self.save_path, exist_ok=True)
@@ -72,32 +76,30 @@ class GroupGCN():
         print('Validation')
         with torch.no_grad():
             for val_data in tqdm(dataloader, dynamic_ncols=True):
+                label_mask_id = obtain_loss_mask(val_data.x[ :, 0 ], 
+                    val_data.label_mask, 
+                    PAD_ID, 
+                    val_data.batch)
                 x, edge_index = val_data.x, val_data.edge_index
-                y = val_data.y
-                pred_mask = val_data.label_mask
-                pred, _ = model(edge_index.cuda(), x.cuda())
-                pred = torch.sigmoid(pred).cpu()
-
-                mask_idx = (pred_mask == 1)
-                B = val_data.batch.max()+1
-                y_pred = torch.FloatTensor(B, user_size)
-                y_target = torch.FloatTensor(B, user_size)
+                x = x.cuda()
+                output, _, label_pred = model(val_data)
+                label_mask_id = label_mask_id.unsqueeze(1)
+                label_mask_id = label_mask_id.repeat(1, output.shape[1], 1).cuda()
+                target = output2seq(val_data, PAD_ID, max_len=output.shape[1]).cuda()
+                
+                pred = masked_softmax(output, label_mask_id)
+                pred = pred[:, :, :PAD_ID].argmax(2)
+                B = val_data.batch.max() + 1
+                y_pred = torch.FloatTensor(B, user_size+1)
+                y_target = torch.FloatTensor(B, user_size+1)
                 y_pred.zero_()
                 y_target.zero_()
-                pred = pred.squeeze(1)
+
                 for batch_idx in range(B):
-                    batch_idxes = (val_data.batch == batch_idx)
+                    y_target[batch_idx, target[batch_idx]] = 1
+                    y_pred[batch_idx, pred[batch_idx] ] = 1
 
-                    target_idx  = (y == 1)
-                    x_idx = x[ batch_idxes & mask_idx & target_idx, 0 ]
-                    y_target[batch_idx, x_idx ] = 1
-
-                    target_idx  = (pred > 0.5)
-                    x_idx = x[ batch_idxes & mask_idx & target_idx, 0 ]
-                    y_pred[batch_idx, x_idx ] = 1
-
-
-                TP, FP, TN, FN = confusion(y_pred, y_target)
+                TP, FP, TN, FN = confusion(y_pred[:, :PAD_ID], y_target[:, :PAD_ID])
 
                 recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
                 precision = 0 if (TP+FP) < 1e-5 else TP/(TP+FP)
@@ -116,6 +118,7 @@ class GroupGCN():
         args = self.args
         train_size = len(self.train_dataset.processed_file_idx)
         val_size = len(self.valid_dataset.processed_file_idx)
+        print(val_size)
         # assert (len(set(self.valid_dataset.processed_file_idx+self.train_dataset.processed_file_idx))) == (train_size+val_size)
 
         train_loader = DataLoader(self.train_dataset,
@@ -136,16 +139,16 @@ class GroupGCN():
         # author2id = dblp['author2id']
         # paper2id = dblp['paper2id']
         # conf2id = dblp['conf2id']
-        model = StackedGCNDBLP(
-                           author_size=874608,#len(author2id),
-                           paper_size=3605603,#len(paper2id),
-                           conf_size=12770,#len(conf2id),
-                           user_dim=args.author_dim,
-                           paper_dim=args.paper_dim,
-                           conf_dim=args.conf_dim,
-                           input_channels=args.input_dim,
-                           layers=args.layers,
-                           dropout=args.dropout)
+        self.user_size = 874608
+        model = HINT(author_size=874608,#len(author2id),
+                        paper_size=3605603,#len(paper2id),
+                        conf_size=12770,#len(conf2id),
+                        user_dim=args.author_dim,
+                        paper_dim=args.paper_dim,
+                        conf_dim=args.conf_dim,
+                        input_channels=args.input_dim,
+                        layers=args.layers,
+                        dropout=args.dropout)
         if args.pretrain:
             model = self.pretrain_embeddings(model, 256, epoch_num=10)
         model = model.cuda()
@@ -158,38 +161,42 @@ class GroupGCN():
         optimizer = torch.optim.Adam(
             model.parameters(), lr=args.lr, weight_decay=5e-4)
         scheduler = ReduceLROnPlateau(optimizer, 'max')
-        print('weight : ', weight)
-        pos_weight = torch.ones([1])*weight
-        pos_weight = pos_weight.cuda()
-        criterion = torch.nn.BCEWithLogitsLoss(pos_weight=pos_weight)
-        xentropy = torch.nn.CrossEntropyLoss()
+        pos_weight = torch.ones([PAD_ID+1])*weight
+        self.pos_weight = pos_weight.cuda()
+        pred_criterion = torch.nn.CrossEntropyLoss(weight=self.pos_weight, ignore_index=PAD_ID)
+        node_criterion = torch.nn.CrossEntropyLoss()
 
         n_iter = 0
         best_f1 = 0
 
         self.writer.add_text('Text', dict2table(vars(args)), 0)
-
         with tqdm(total=len(train_loader)*epochs, dynamic_ncols=True) as pbar:
             for epoch in range(epochs):
                 for data in train_loader:
                     optimizer.zero_grad()
+                    label_mask_id = obtain_loss_mask(data.x[ :, 0 ], 
+                        data.label_mask, 
+                        PAD_ID, 
+                        data.batch )
                     x, edge_index = data.x, data.edge_index
                     x = x.cuda()
-                    edge_index = edge_index.cuda()
-                    pred_mask = data.label_mask.cuda() == 1
-                    label = data.y.unsqueeze(-1).cuda().float()
 
-                    node_pred, type_pred = model(edge_index, x)
-                    type_loss = xentropy(type_pred, x[:, -1])
-                    pred_loss = criterion(node_pred[pred_mask], label[pred_mask])
-                    loss = pred_loss + type_loss
+                    output, _, label_pred = model(data)
+                    label_mask_id = label_mask_id.unsqueeze(1)
+                    label_mask_id = label_mask_id.repeat(1, output.shape[1], 1).cuda()
+                    target = output2seq(data, PAD_ID, max_len=output.shape[1]).cuda()
+                    
+                    pred = masked_softmax(output, label_mask_id)
+                    node_loss = node_criterion(label_pred, x[:, -1])
+                    pred_loss = pred_criterion(pred.reshape(-1, self.user_size+1), target.flatten()) / pred.shape[1]
+                    loss = pred_loss + node_loss
                     loss.backward()
 
                     optimizer.step()
                     self.writer.add_scalar(
-                        "Train/BCEWithLogitsLoss", pred_loss.item(), n_iter)
+                        "Train/MemberLoss", pred_loss.item(), n_iter)
                     self.writer.add_scalar(
-                        "Train/CrossEntropyLoss", type_loss.item(), n_iter)
+                        "Train/NodeLoss", node_loss.item(), n_iter)
                     pbar.update(1)
                     pbar.set_description(
                         "loss {:.4f}, epoch {}".format(loss.item(), epoch))
@@ -214,41 +221,41 @@ class GroupGCN():
                         }
                     print(f1)
 
-                if epoch % args.save == 0:
-                    self.save_checkpoint({
-                        'epoch': epoch+1,
-                        'model': model.state_dict(),
-                        'optimizer': optimizer.state_dict(),
-                        'f1': f1
-                        },
-                        self.save_path,
-                        "{}".format(epoch+1)
-                    )
-        f1, recalls, precisions = self.evaluate(valid_loader, model)
-        self.writer.add_scalar("Valid/F1", f1, n_iter)
-        self.writer.add_scalar("Valid/Recalls", recalls, n_iter)
-        self.writer.add_scalar("Valid/Precisions", precisions,
-                                n_iter)
-        if f1 > best_f1:
-            best_f1 = f1
-            best_checkpoint = {
-                'epoch': epoch+1,
-                'model': model.state_dict(),
-                'optimizer': optimizer.state_dict(),
-                'f1': f1
-            }
-        print(f1)
-        print("Testing")
-        self.save_checkpoint(best_checkpoint,
-                             self.save_path,
-                             "best")
-        model.load_state_dict(best_checkpoint["model"])
-        f1, recalls, precisions = self.evaluate(test_loader, model)
-        self.writer.add_scalar("Test/F1", f1, n_iter)
-        self.writer.add_scalar("Test/Recalls", recalls, n_iter)
-        self.writer.add_scalar("Test/Precisions", precisions, n_iter)
-        self.writer.flush()
-        return f1, recalls, precisions
+                # if epoch % args.save == 0:
+                #     self.save_checkpoint({
+                #         'epoch': epoch+1,
+                #         'model': model.state_dict(),
+                #         'optimizer': optimizer.state_dict(),
+                #         'f1': f1
+                #         },
+                #         self.save_path,
+                #         "{}".format(epoch+1)
+                #     )
+        # f1, recalls, precisions = self.evaluate(valid_loader, model)
+        # self.writer.add_scalar("Valid/F1", f1, n_iter)
+        # self.writer.add_scalar("Valid/Recalls", recalls, n_iter)
+        # self.writer.add_scalar("Valid/Precisions", precisions,
+        #                         n_iter)
+        # if f1 > best_f1:
+        #     best_f1 = f1
+        #     best_checkpoint = {
+        #         'epoch': epoch+1,
+        #         'model': model.state_dict(),
+        #         'optimizer': optimizer.state_dict(),
+        #         'f1': f1
+        #     }
+        # print(f1)
+        # print("Testing")
+        # self.save_checkpoint(best_checkpoint,
+        #                      self.save_path,
+        #                      "best")
+        # model.load_state_dict(best_checkpoint["model"])
+        # f1, recalls, precisions = self.evaluate(test_loader, model)
+        # self.writer.add_scalar("Test/F1", f1, n_iter)
+        # self.writer.add_scalar("Test/Recalls", recalls, n_iter)
+        # self.writer.add_scalar("Test/Precisions", precisions, n_iter)
+        # self.writer.flush()
+        # return f1, recalls, precisions
 
     def pretrain_embeddings(self, model, batch_size, epoch_num=1, neg_num=20):
         import torch.optim as optim
@@ -302,13 +309,13 @@ class GroupGCN():
             embeddings[node_type] = skip_model.input_emb.weight
             if node_type == 0:
                 print('transfer user embeddings')
-                model.embeddings.weight.data = skip_model.input_emb.weight.data
+                model.gcn.embeddings.weight.data = skip_model.input_emb.weight.data
             elif node_type == 1:
                 print('transfer topic embeddings')
-                model.paper_embeddings.weight.data = skip_model.input_emb.weight.data
+                model.gcn.paper_embeddings.weight.data = skip_model.input_emb.weight.data
             elif node_type == 2:
                 print('transfer category embeddings')
-                model.conf_embeddings.weight.data = skip_model.input_emb.weight.data
+                model.gcn.conf_embeddings.weight.data = skip_model.input_emb.weight.data
         torch.save(embeddings, os.path.join(self.save_path, 'embeddings.pt'))
         return model
 
@@ -326,8 +333,8 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--baseline', type=str2bool, nargs='?', default=False,
         help='baseline model only takes in previous co-author relationship (no conference, no paper id)')
-    parser.add_argument('--batch-size', type=int, default=64)
-    parser.add_argument('--lr', type=float, default=0.001)
+    parser.add_argument('--batch-size', type=int, default=10)
+    parser.add_argument('--lr', type=float, default=0.0005)
     parser.add_argument('--pos-weight', type=float, default=-1)
     parser.add_argument('--eval', type=int, default=10)
     parser.add_argument('--save', type=int, default=50)
@@ -352,7 +359,7 @@ if __name__ == "__main__":
     }
 
     for i in range(args.repeat_n):
-        trainer = GroupGCN(args)
+        trainer = HINT_Trainer(args)
         f1, recalls, precisions = trainer.train(epochs=args.epochs)
         values['f1'].append(f1)
         values['recall'].append(recalls)
