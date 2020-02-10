@@ -373,7 +373,7 @@ class Aminer(Dataset):
             'dblp', self.cutoff, self.ratio, self.min_size)
         temp = osp.join(osp.join("processed", self.data_folder), 'processed')
         match_filename = self.cache_file_prefix+'_*_v2.pt'
-        self.list_of_data = list(glob.glob(osp.join(temp, match_filename)))
+        self.processed_file_idx = list(glob.glob(osp.join(temp, match_filename)))
 
         os.makedirs(osp.join(osp.join("processed", self.data_folder), 'processed'), exist_ok=True)
         super(Aminer, self).__init__(osp.join("processed", self.data_folder),
@@ -383,7 +383,7 @@ class Aminer(Dataset):
 
     @property
     def processed_file_names(self):
-        return self.list_of_data
+        return self.processed_file_idx
 
     def _download(self):
         pass
@@ -404,7 +404,7 @@ class Aminer(Dataset):
             self.processed_file_idx = list(glob.glob(osp.join(self.processed_dir, match_filename)))
             return
         self.init_preprocessing()
-        self.list_of_data = list(glob.glob(osp.join(self.processed_dir, match_filename)))
+        self.processed_file_idx = list(glob.glob(osp.join(self.processed_dir, match_filename)))
 
 
     def __len__(self):
@@ -457,7 +457,7 @@ class Aminer(Dataset):
         for res in results:
             res.get()
         match_filename = self.cache_file_prefix+'_*_v2.pt'
-        self.list_of_data = list(glob.glob(osp.join(self.processed_dir, match_filename)))
+        self.processed_file_idx = list(glob.glob(osp.join(self.processed_dir, match_filename)))
 
     def get(self, idx):
         if isinstance(idx, list):
