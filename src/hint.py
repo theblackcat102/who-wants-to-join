@@ -5,7 +5,8 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 from src.gcn import StackedGCNDBLP
-
+from torch.nn import TransformerEncoder, TransformerEncoderLayer, TransformerDecoderLayer, TransformerDecoder
+PAD_ID = 874608
 class SingleHeadAttention(nn.Module):
     ''' Single-Head Attention module '''
     def __init__(self, d_model, d_k, d_v, dropout=0.1):
@@ -139,7 +140,7 @@ def obtain_loss_mask(x, label_mask, embedding_size, batch):
         mask[idx, -1] = 1
     return mask
 
-def output2seq(data, pad_id, max_len=-1):
+def output2seq(data, pad_id, max_len=-1,):
     batch_size = len(data.size)
     batch = data.batch
     sequences = torch.zeros(batch_size, data.size.max())
@@ -176,27 +177,38 @@ class HINT(nn.Module):
         san_head_dim=32, 
         ):
         super().__init__()
-        self.author_size = ( author_size, user_dim)
+        self.author_size = ( author_size+3, user_dim)
         self.paper_size =  (paper_size, paper_dim)
-        self.conf_size = (conf_size, conf_dim)
+        self.conf_size = ( conf_size, conf_dim)
         self.gcn = StackedGCNDBLP(
-                    author_size=author_size,#len(author2id),
+                    author_size=author_size+3,#len(author2id),
                     paper_size=paper_size,#len(paper2id),
                     conf_size=conf_size,
-                    output_channels=san_dim)
+                    output_channels=san_dim,
+                    user_dim=user_dim, paper_dim=paper_dim, conf_dim=conf_dim, input_channels=input_channels, 
+                    layers=layers, dropout=dropout)
+        self.special_token = nn.Embedding(3, san_dim)
+        self.d_model = san_dim
 
-        self.pad_vector = nn.Embedding(1, san_dim)
+        encoder_layer = TransformerEncoderLayer(san_dim, 2, san_head_dim, 0.1)
+        encoder_norm = nn.LayerNorm(san_dim)
+        self.encoder = TransformerEncoder(encoder_layer, 2, encoder_norm)
 
-        self.stacked_encoder = nn.Sequential(
-            # SAN(san_dim, dropout=dropout),
-            SAN(san_dim, dropout=dropout, output_query=True),
-        )
+        decoder_layer = TransformerDecoderLayer(san_dim, 2, san_head_dim, 0.1)
+        decoder_norm = nn.LayerNorm(san_dim)
+        self.decoder = TransformerDecoder(decoder_layer, 2, decoder_norm)
+        self.decoder_embeddings = nn.Sequential(self.gcn.embeddings,
+            nn.Linear(user_dim, san_dim))
 
-        self.stacked_decoder = nn.Sequential(
-            # SAN(san_dim, dropout=dropout),
-            SAN(san_dim, dropout=dropout, output_query=True),
-        )
+        # self.stacked_encoder = nn.Sequential(
+        #     # SAN(san_dim, dropout=dropout),
+        #     SAN(san_dim, dropout=dropout, output_query=True),
+        # )
 
+        # self.stacked_decoder = nn.Sequential(
+        #     # SAN(san_dim, dropout=dropout),
+        #     SAN(san_dim, dropout=dropout, output_query=True),
+        # )
         self.linear = nn.Sequential(
             nn.LayerNorm(san_dim),
             nn.LeakyReLU(),
@@ -208,66 +220,58 @@ class HINT(nn.Module):
         )
         self.attn = ScaledDotProductAttention(1)
 
-    def forward(self, data):
+    def forward(self, data, src_mask=None, tgt_mask=None,
+                memory_mask=None, src_key_padding_mask=None,
+                tgt_key_padding_mask=None, memory_key_padding_mask=None):
+
         x, edge_index = data.x, data.edge_index
         _, _, embeddings = self.gcn(edge_index.cuda(), x.cuda())
-        feature = sequence_pad(embeddings, data, pad_vector=self.pad_vector(torch.LongTensor([0]).cuda()))
-        src2, attn, q, k, v = self.stacked_encoder(feature)
-        src, _, q_, k_, v_ = self.stacked_decoder(src2)
-        sz_b, len_q, len_k, len_v = q.size(0), q.size(2), k.size(1), v.size(1)
-        out, attn = self.attn(q_, k, v)
-        out = out.contiguous().view(sz_b, len_q, -1)
-        return self.linear(out), attn, self.node_class(embeddings)    
+        feature = sequence_pad(embeddings, data, pad_vector=self.special_token(torch.LongTensor([0]).cuda()))
+        target = output2seq(data, PAD_ID, max_len=feature.shape[1]).cuda()
+        bos_idx = torch.zeros( target.size(0), 1 ) + PAD_ID+1
+        bos_idx = bos_idx.long().cuda()
+        target = torch.cat([bos_idx, target], dim=1)
+        target = self.decoder_embeddings(target)
+        # src2, attn, q, k, v = self.stacked_encoder(feature)
+        # src, _, q_, k_, v_ = self.stacked_decoder(src2)
+        # sz_b, len_q, len_k, len_v = q.size(0), q.size(2), k.size(1), v.size(1)
+        # out, attn = self.attn(q_, k, v)
+        # out = out.contiguous().view(sz_b, len_q, -1)
+
+        feature = feature.transpose(1, 0)
+        target = target.transpose(1, 0)
+
+        if feature.size(1) != target.size(1):
+            raise RuntimeError("the batch number of src and tgt must be equal")
+
+        if feature.size(2) != self.d_model or target.size(2) != self.d_model:
+            raise RuntimeError("the feature number of src and tgt must be equal to d_model")
+
+        memory = self.encoder(feature, mask=src_mask, src_key_padding_mask=src_key_padding_mask)
+        tgt_mask = self.generate_square_subsequent_mask(target.size(0)).cuda()
+        output = self.decoder(target, memory, tgt_mask=tgt_mask, memory_mask=memory_mask,
+                              tgt_key_padding_mask=tgt_key_padding_mask,
+                              memory_key_padding_mask=memory_key_padding_mask)
+
+        return self.linear(output), self.node_class(embeddings)    
+
+    def generate_square_subsequent_mask(self, sz):
+        r"""Generate a square mask for the sequence. The masked positions are filled with float('-inf').
+            Unmasked positions are filled with float(0.0).
+        """
+        mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
+        mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
+        return mask
 
 if __name__ == "__main__":
     from torch_geometric.data import DataLoader
     from src.aminer import Aminer
     from src.gcn import StackedGCNDBLP
     dataset = Aminer()
-
-    class Test(nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.gcn = StackedGCNDBLP(
-                        author_size=874608,#len(author2id),
-                        paper_size=3605603,#len(paper2id),
-                        conf_size=12770,
-                        output_channels=16)
-            self.stacked_encoder = nn.Sequential(
-                SAN(16),
-                SAN(16, output_query=True),
-            )
-            self.stacked_decoder = nn.Sequential(
-                SAN(16),
-                SAN(16, output_query=True),
-            )
-
-            self.linear = nn.Sequential(
-                nn.LayerNorm(16),
-                nn.ReLU(),
-                nn.Linear(16, author_size)
-            )
-            self.node_class = nn.Sequential(
-                nn.ReLU(),
-                nn.Linear(16, 3)
-            )
-            self.attn = ScaledDotProductAttention(1)
-        
-        def forward(self, data):
-            x, edge_index = data.x, data.edge_index
-            _, _, embeddings = self.gcn(edge_index.cuda(), x.cuda())
-            feature = sequence_pad(embeddings, data)
-            src2, attn, q, k, v = self.stacked_encoder(feature)
-            src, _, q_, k_, v_ = self.stacked_decoder(src2)
-            sz_b, len_q, len_k, len_v = q.size(0), q.size(2), k.size(1), v.size(1)
-            out, attn = self.attn(q_, k, v)
-            out = out.contiguous().view(sz_b, len_q, -1)
-            return self.linear(out), attn, self.node_class(embeddings)
-
-    model = Test().cuda()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    model = HINT().cuda()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
     loader = DataLoader(dataset, batch_size=8, shuffle=True, num_workers=4)
-    criterion = nn.CrossEntropyLoss(ignore_index=874608)
+    criterion = nn.CrossEntropyLoss(ignore_index=PAD_ID)
     for epoch in range(5):
         for data in loader:
             label_mask_id = obtain_loss_mask(data.x[ :, 0 ], 
@@ -276,15 +280,18 @@ if __name__ == "__main__":
                 data.batch )
             x, edge_index = data.x, data.edge_index
             x = x.cuda()
-            output, _, label_pred = model(data)
+            output, label_pred = model(data)
+
+            output = output.transpose(1, 0)
+
             label_mask_id = label_mask_id.unsqueeze(1)
             label_mask_id = label_mask_id.repeat(1, output.shape[1], 1).cuda()
-            target = output2seq(data, 874608, max_len=output.shape[1]).cuda()
-            
+            target = output2seq(data, PAD_ID, max_len=output.shape[1]).cuda()
+
             pred = masked_softmax(output, label_mask_id)
             node_loss = criterion(label_pred, x[:, -1])
-            pred_loss = criterion(pred.reshape(-1, 874608), target.flatten()) / pred.shape[1]
-            loss =  pred_loss + node_loss
+            pred_loss = criterion(pred.reshape(-1, PAD_ID+1), target.flatten()) / pred.shape[1]
+            loss =  5*pred_loss + node_loss
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()

@@ -11,7 +11,6 @@ import os
 import os.path as osp
 import numpy as np
 import torch.nn as nn
-from torch_geometric.nn.models.node2vec import Node2Vec
 from src.skipgram import generate_batch, SkipGramNeg, data_to_networkx_, sample_walks
 from src.utils import dict2table, confusion, str2bool
 from src.hint import HINT, obtain_loss_mask, output2seq, masked_softmax
@@ -180,17 +179,21 @@ class HINT_Trainer():
                         data.batch )
                     x, edge_index = data.x, data.edge_index
                     x = x.cuda()
+                    output, label_pred = model(data)
 
-                    output, _, label_pred = model(data)
+                    output = output.transpose(1, 0)
+
                     label_mask_id = label_mask_id.unsqueeze(1)
                     label_mask_id = label_mask_id.repeat(1, output.shape[1], 1).cuda()
                     target = output2seq(data, PAD_ID, max_len=output.shape[1]).cuda()
-                    
+
                     pred = masked_softmax(output, label_mask_id)
                     node_loss = node_criterion(label_pred, x[:, -1])
-                    pred_loss = pred_criterion(pred.reshape(-1, self.user_size+1), target.flatten()) / pred.shape[1]
-                    loss = pred_loss + node_loss
+                    pred_loss = pred_criterion(pred.reshape(-1, PAD_ID+1), target.flatten()) / pred.shape[1]
+                    loss =  5*pred_loss + node_loss
+                    optimizer.zero_grad()
                     loss.backward()
+                    optimizer.step()
 
                     optimizer.step()
                     self.writer.add_scalar(
@@ -333,7 +336,7 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--baseline', type=str2bool, nargs='?', default=False,
         help='baseline model only takes in previous co-author relationship (no conference, no paper id)')
-    parser.add_argument('--batch-size', type=int, default=10)
+    parser.add_argument('--batch-size', type=int, default=8)
     parser.add_argument('--lr', type=float, default=0.0005)
     parser.add_argument('--pos-weight', type=float, default=-1)
     parser.add_argument('--eval', type=int, default=10)
