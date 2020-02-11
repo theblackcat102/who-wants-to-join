@@ -173,10 +173,12 @@ class HINT(nn.Module):
         input_channels=16,
         layers=[32, 32],
         dropout=0.1,
-        san_head_dim=16, 
+        san_head_dim=32, 
         ):
         super().__init__()
-
+        self.author_size = ( author_size, user_dim)
+        self.paper_size =  (paper_size, paper_dim)
+        self.conf_size = (conf_size, conf_dim)
         self.gcn = StackedGCNDBLP(
                     author_size=author_size,#len(author2id),
                     paper_size=paper_size,#len(paper2id),
@@ -186,12 +188,12 @@ class HINT(nn.Module):
         self.pad_vector = nn.Embedding(1, san_dim)
 
         self.stacked_encoder = nn.Sequential(
-            SAN(san_dim, dropout=dropout),
+            # SAN(san_dim, dropout=dropout),
             SAN(san_dim, dropout=dropout, output_query=True),
         )
 
         self.stacked_decoder = nn.Sequential(
-            SAN(san_dim, dropout=dropout),
+            # SAN(san_dim, dropout=dropout),
             SAN(san_dim, dropout=dropout, output_query=True),
         )
 
@@ -205,7 +207,7 @@ class HINT(nn.Module):
             nn.Linear(san_dim, 3)
         )
         self.attn = ScaledDotProductAttention(1)
-    
+
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
         _, _, embeddings = self.gcn(edge_index.cuda(), x.cuda())
