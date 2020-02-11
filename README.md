@@ -1,3 +1,28 @@
+# Prepare dataset
+
+
+Amazon  : src/amazon.py
+    
+    1. bash download.sh
+
+    2. cd data/amazon : unzip tgz files under amazon
+
+
+Meetup NY/SF : src/meetup.py
+
+    1. mkdir meetup_v2 under project root
+    2. download meetup csv from here [https://www.kaggle.com/sirpunch/meetups-data-from-meetupcom](https://www.kaggle.com/sirpunch/meetups-data-from-meetupcom)
+    3. Run ``` python -m src.meetup_trainer --dataset NY ```
+
+
+ Aminer  : src/aminer.py
+
+    1. mkdir aminer under project root
+    2. download citation network v1 from here [https://www.aminer.cn/citation](https://www.aminer.cn/citation)
+    3. unzip zip and rename the txt file as dblp.txt
+    4. Run ``` python -m src.aminer_trainer ```
+
+
 # Notes
 
 
