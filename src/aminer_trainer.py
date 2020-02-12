@@ -17,6 +17,8 @@ from src.utils import dict2table, confusion, str2bool, TMP_WRITER_PATH
 from src.hint import HINT, obtain_loss_mask, output2seq, masked_softmax
 from src.aminer import PaddedDataLoader
 PAD_ID = 874608
+BOS_ID = PAD_ID+1
+EOS_ID = PAD_ID+2
 
 class HINT_Trainer():
     def __init__(self, args):
@@ -87,17 +89,10 @@ class HINT_Trainer():
                     val_data.batch)
                 x, edge_index = val_data.x, val_data.edge_index
                 x = x.cuda()
-                output, label_pred = model(val_data)
+                pred = model.inference(val_data)
 
-                output = output.transpose(1, 0)
-
-                label_mask_id = label_mask_id.unsqueeze(1)
-                label_mask_id = label_mask_id.repeat(1, output.shape[1], 1).cuda()
-                target = output2seq(val_data, PAD_ID, max_len=output.shape[1]).cuda()
-
-                pred = masked_softmax(output, label_mask_id)
-                pred = pred[:, :, :PAD_ID].argmax(2)
                 B = val_data.batch.max() + 1
+                target = output2seq(val_data, PAD_ID, max_len=val_data.known.max()+1)
                 y_pred = torch.FloatTensor(B, user_size+1)
                 y_target = torch.FloatTensor(B, user_size+1)
                 y_pred.zero_()
@@ -219,60 +214,60 @@ class HINT_Trainer():
                         "loss {:.4f}, epoch {}".format(loss.item(), epoch))
                     n_iter += 1
 
-                # if epoch % args.eval == 0:
-                #     print('Epoch: ', epoch)
-                #     f1, recalls, precisions = self.evaluate(valid_loader,
-                #                                             model)
-                #     scheduler.step(f1)
-                #     self.writer.add_scalar("Valid/F1", f1, n_iter)
-                #     self.writer.add_scalar("Valid/Recalls", recalls, n_iter)
-                #     self.writer.add_scalar("Valid/Precisions", precisions,
-                #                            n_iter)
-                #     if f1 > best_f1:
-                #         best_f1 = f1
-                #         best_checkpoint = {
-                #             'epoch': epoch+1,
-                #             'model': model.state_dict(),
-                #             'optimizer': optimizer.state_dict(),
-                #             'f1': f1
-                #         }
-                #     print(f1)
+                if epoch % args.eval == 0:
+                    print('Epoch: ', epoch)
+                    f1, recalls, precisions = self.evaluate(valid_loader,
+                                                            model)
+                    scheduler.step(f1)
+                    self.writer.add_scalar("Valid/F1", f1, n_iter)
+                    self.writer.add_scalar("Valid/Recalls", recalls, n_iter)
+                    self.writer.add_scalar("Valid/Precisions", precisions,
+                                           n_iter)
+                    if f1 > best_f1:
+                        best_f1 = f1
+                        best_checkpoint = {
+                            'epoch': epoch+1,
+                            'model': model.state_dict(),
+                            'optimizer': optimizer.state_dict(),
+                            'f1': f1
+                        }
+                    print(f1)
 
-                # if epoch % args.save == 0:
-                #     self.save_checkpoint({
-                #         'epoch': epoch+1,
-                #         'model': model.state_dict(),
-                #         'optimizer': optimizer.state_dict(),
-                #         'f1': f1
-                #         },
-                #         self.save_path,
-                #         "{}".format(epoch+1)
-                #     )
-        # f1, recalls, precisions = self.evaluate(valid_loader, model)
-        # self.writer.add_scalar("Valid/F1", f1, n_iter)
-        # self.writer.add_scalar("Valid/Recalls", recalls, n_iter)
-        # self.writer.add_scalar("Valid/Precisions", precisions,
-        #                         n_iter)
-        # if f1 > best_f1:
-        #     best_f1 = f1
-        #     best_checkpoint = {
-        #         'epoch': epoch+1,
-        #         'model': model.state_dict(),
-        #         'optimizer': optimizer.state_dict(),
-        #         'f1': f1
-        #     }
-        # print(f1)
-        # print("Testing")
-        # self.save_checkpoint(best_checkpoint,
-        #                      self.save_path,
-        #                      "best")
-        # model.load_state_dict(best_checkpoint["model"])
-        # f1, recalls, precisions = self.evaluate(test_loader, model)
-        # self.writer.add_scalar("Test/F1", f1, n_iter)
-        # self.writer.add_scalar("Test/Recalls", recalls, n_iter)
-        # self.writer.add_scalar("Test/Precisions", precisions, n_iter)
-        # self.writer.flush()
-        # return f1, recalls, precisions
+                if epoch % args.save == 0:
+                    self.save_checkpoint({
+                        'epoch': epoch+1,
+                        'model': model.state_dict(),
+                        'optimizer': optimizer.state_dict(),
+                        'f1': f1
+                        },
+                        self.save_path,
+                        "{}".format(epoch+1)
+                    )
+        f1, recalls, precisions = self.evaluate(valid_loader, model)
+        self.writer.add_scalar("Valid/F1", f1, n_iter)
+        self.writer.add_scalar("Valid/Recalls", recalls, n_iter)
+        self.writer.add_scalar("Valid/Precisions", precisions,
+                                n_iter)
+        if f1 > best_f1:
+            best_f1 = f1
+            best_checkpoint = {
+                'epoch': epoch+1,
+                'model': model.state_dict(),
+                'optimizer': optimizer.state_dict(),
+                'f1': f1
+            }
+        print(f1)
+        print("Testing")
+        self.save_checkpoint(best_checkpoint,
+                             self.save_path,
+                             "best")
+        model.load_state_dict(best_checkpoint["model"])
+        f1, recalls, precisions = self.evaluate(test_loader, model)
+        self.writer.add_scalar("Test/F1", f1, n_iter)
+        self.writer.add_scalar("Test/Recalls", recalls, n_iter)
+        self.writer.add_scalar("Test/Precisions", precisions, n_iter)
+        self.writer.flush()
+        return f1, recalls, precisions
 
     def pretrain_embeddings(self, model, batch_size, epoch_num=1, neg_num=20):
         import torch.optim as optim
@@ -351,7 +346,7 @@ if __name__ == "__main__":
     parser.add_argument('--baseline', type=str2bool, nargs='?', default=False,
         help='baseline model only takes in previous co-author relationship (no conference, no paper id)')
     parser.add_argument('--batch-size', type=int, default=8)
-    parser.add_argument('--lr', type=float, default=0.0005)
+    parser.add_argument('--lr', type=float, default=0.001)
     parser.add_argument('--pos-weight', type=float, default=-1)
     parser.add_argument('--eval', type=int, default=10)
     parser.add_argument('--save', type=int, default=50)

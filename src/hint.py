@@ -8,6 +8,9 @@ from src.gcn import StackedGCNDBLP
 
 from torch.nn import TransformerEncoder, TransformerEncoderLayer, TransformerDecoderLayer, TransformerDecoder
 PAD_ID = 874608
+BOS_ID = PAD_ID+1
+EOS_ID = PAD_ID+2
+
 class SingleHeadAttention(nn.Module):
     ''' Single-Head Attention module '''
     def __init__(self, d_model, d_k, d_v, dropout=0.1):
@@ -135,10 +138,12 @@ def obtain_loss_mask(x, label_mask, embedding_size, batch):
     batch_size = batch.max()+1
     mask = torch.zeros(batch_size, embedding_size+3)
     label_bool = label_mask == 1
+
     for idx in range(batch_size):
         label_mask_id = x[ (batch == idx) & label_bool ]        
         mask[ idx, label_mask_id ] = 1
         mask[idx, -1] = 1
+        mask[idx,  [embedding_size, embedding_size+1, embedding_size+2] ] = 1
     return mask
 
 def output2seq(data, pad_id, max_len=-1,):
@@ -231,7 +236,9 @@ class HINT(nn.Module):
 
         feature = embeddings#[ data.y == 1 ]
         feature = feature.reshape(len(data.titleid), data.length, -1 )
-        feature = feature[ :, :data.known.max()+5, : ]
+        # the last token should replace as EOS, but not sure how to execute this elegantly
+        feature = feature[ :, :data.known.max()+1, : ] 
+        
         target = output2seq(data, PAD_ID, max_len=feature.shape[1]-1).cuda()
         bos_idx = torch.zeros( target.size(0), 1 ) + PAD_ID+1
         bos_idx = bos_idx.long().cuda()
@@ -268,6 +275,44 @@ class HINT(nn.Module):
         mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
         return mask
+    
+    def inference(self, data):
+        # greedy decoding
+        x, edge_index = data.x, data.edge_index
+        _, _, embeddings = self.gcn(edge_index.cuda(), x.cuda())
+        feature = embeddings#[ data.y == 1 ]
+        feature = feature.reshape(len(data.titleid), data.length, -1 )
+        max_length = data.known.max()+1
+        feature = feature[ :, :data.known.max()+1, : ]
+        feature = feature.transpose(1, 0)
+        memory = self.encoder(feature)
+        tokens = []
+        bos_idx = torch.zeros( 1, memory.size(1) ) + PAD_ID + 1
+        targets = bos_idx.long().cuda()
+        pred_seq = []
+
+        label_mask_id = obtain_loss_mask(data.x[ :, 0 ], 
+                        data.label_mask, 
+                        PAD_ID, 
+                        data.batch )
+        label_mask_id = label_mask_id.unsqueeze(0).cuda()
+
+        for idx in range(max_length):
+            target = self.decoder_embeddings(targets)
+            output = self.decoder(target, memory)
+            memory = torch.cat([memory, output], dim=0)
+
+            output = self.linear(output)
+            pred = masked_softmax(output, label_mask_id)
+            output_idx = pred.argmax(2)
+
+            targets = output_idx
+            pred_seq.append(output_idx)
+
+        pred_seq = torch.cat(pred_seq, dim=0)
+        print(pred_seq.shape)
+        print(pred_seq[0])
+        return pred_seq.transpose(1, 0)
 
 if __name__ == "__main__":
     from torch_geometric.data import DataLoader
