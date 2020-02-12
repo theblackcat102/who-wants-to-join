@@ -2,6 +2,7 @@ from datetime import datetime
 from src.aminer import Aminer
 from torch_geometric.data import DataLoader
 import random
+import shutil
 from tqdm import tqdm
 import torch
 from torch.utils.tensorboard import SummaryWriter
@@ -12,7 +13,7 @@ import os.path as osp
 import numpy as np
 import torch.nn as nn
 from src.skipgram import generate_batch, SkipGramNeg, data_to_networkx_, sample_walks
-from src.utils import dict2table, confusion, str2bool
+from src.utils import dict2table, confusion, str2bool, TMP_WRITER_PATH
 from src.hint import HINT, obtain_loss_mask, output2seq, masked_softmax
 from src.aminer import PaddedDataLoader
 PAD_ID = 874608
@@ -54,9 +55,14 @@ class HINT_Trainer():
 
         self.args = args
 
-        self.log_path = osp.join(
-            "logs", "aminer",
-            'hint_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+        if args.writer is True:
+            self.log_path = osp.join(
+                "logs", "aminer",
+                'hint_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+        else:
+            shutil.rmtree(TMP_WRITER_PATH, ignore_errors=True)
+            self.log_path = TMP_WRITER_PATH
+    
         self.writer = SummaryWriter(log_dir=self.log_path)
         self.save_path = osp.join(self.log_path, "models")
         os.makedirs(self.save_path, exist_ok=True)
@@ -357,8 +363,10 @@ if __name__ == "__main__":
     parser.add_argument('--conf-dim', type=int, default=8)
     parser.add_argument('--input-dim', type=int, default=16)
     parser.add_argument('--dropout', type=float, default=0.1)
-    parser.add_argument('--layers', nargs='+', type=int, default=[16, 16])
+    parser.add_argument('--layers', nargs='+', type=int, default=[32, 32])
+    # debug
     parser.add_argument('--repeat-n', type=int, default=1)
+    parser.add_argument('--writer', type=str2bool, nargs='?', default=True)
     args = parser.parse_args()
 
     # trainer = GroupGCN(args)

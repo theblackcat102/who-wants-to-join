@@ -392,6 +392,22 @@ def async_postprocessing(paper, H, idx, processed_dir, cache_file_prefix, cutoff
     return None
 
 
+def async_postprocessing_job(papers, Hs, idx, processed_dir, cache_file_prefix, pbar_queue, cutoff=2):
+    idx_ = idx
+    for p, H in zip(papers, Hs):
+        sub_G, hit, pred_cnt = create_subgraph(p, H, cutoff=cutoff)
+        if sub_G is None:
+            return None
+        if idx_ < 100: # debug purpose make sure sub_G nodes number differ each iteration
+            print(len(sub_G.nodes), hit, pred_cnt)
+        data = graph2data(sub_G, p['title'])
+        filename = cache_file_prefix+'_{}_v2.pt'.format(idx_)
+        torch.save(data, osp.join(processed_dir, filename))
+        idx_ += 1
+    pbar_queue.put(len(papers))
+    return None
+
+
 class Aminer(Dataset):
 
     def __init__(self, cutoff=2, ratio=0.8, min_size=5, max_size=100,
@@ -467,36 +483,20 @@ class Aminer(Dataset):
             G = init_graph(first_half_papers, paper2id, conf2id, author2id, citation_graph, index2title)
 
         H = G.copy()
-        pool = mp.Pool(processes=8)
-        results = []
-
-        for idx, p in tqdm(enumerate(second_half_papers), 
-            dynamic_ncols=True, total=len(second_half_papers)):
-            paper = deepcopy(p)
+        for idx, p in tqdm(enumerate(second_half_papers), total=len(second_half_papers), dynamic_ncols=True):
+            paper = p
             paper['title'] = paper2id[paper['title']]
-            paper['authors'] = [ author2id[a] for a in paper['authors']]
+            paper['authors'] = [author2id[a] for a in paper['authors']]
             if 'conf' in paper:
                 paper['conf'] = conf2id[paper['conf']]
-
             async_postprocessing(paper, H.copy(), idx, self.processed_dir, self.cache_file_prefix,
                 cutoff=self.cutoff)
-            # args = [
-            #     paper, H.copy(), idx, self.processed_dir, self.cache_file_prefix
-            # ]
-            # kwds = {'cutoff': self.cutoff}
-            # res = pool.apply_async(async_postprocessing, args=args, kwds=kwds)
-            # results.append(res)
             if self.baseline:
                 H = append_paper_graph_baseline(H, deepcopy(p), author2id)
             else:
-                H = append_paper_graph(H, deepcopy(p), paper2id, conf2id, 
-                    author2id, citation_graph, index2title)
+                H = append_paper_graph(H, deepcopy(p), paper2id, conf2id,
+                                       author2id, citation_graph, index2title)
 
-            if idx % 200 == 0 and idx != 0:
-                sleep(10)
-
-        for res in results:
-            res.get()
         match_filename = self.cache_file_prefix+'_*_v2.pt'
         self.processed_file_idx = list(glob.glob(osp.join(self.processed_dir, match_filename)))
 
