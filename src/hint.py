@@ -5,6 +5,7 @@ import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 from src.gcn import StackedGCNDBLP
+
 from torch.nn import TransformerEncoder, TransformerEncoderLayer, TransformerDecoderLayer, TransformerDecoder
 PAD_ID = 874608
 class SingleHeadAttention(nn.Module):
@@ -132,7 +133,7 @@ def sequence_pad(embeddings, data, pad_vector=None):
 
 def obtain_loss_mask(x, label_mask, embedding_size, batch):
     batch_size = batch.max()+1
-    mask = torch.zeros(batch_size, embedding_size+1)
+    mask = torch.zeros(batch_size, embedding_size+3)
     label_bool = label_mask == 1
     for idx in range(batch_size):
         label_mask_id = x[ (batch == idx) & label_bool ]        
@@ -144,7 +145,6 @@ def output2seq(data, pad_id, max_len=-1,):
     batch_size = len(data.size)
     batch = data.batch
     sequences = torch.zeros(batch_size, data.size.max())
-
     for idx in range(batch_size):
         y_id = data.x[ (data.y == 1) & (batch == idx), 0 ]
         sequences[idx, :len(y_id)] = y_id
@@ -187,14 +187,15 @@ class HINT(nn.Module):
                     output_channels=san_dim,
                     user_dim=user_dim, paper_dim=paper_dim, conf_dim=conf_dim, input_channels=input_channels, 
                     layers=layers, dropout=dropout)
+
         self.special_token = nn.Embedding(3, san_dim)
         self.d_model = san_dim
 
-        encoder_layer = TransformerEncoderLayer(san_dim, 2, san_head_dim, 0.1)
+        encoder_layer = TransformerEncoderLayer(san_dim, 1, san_head_dim, 0.1)
         encoder_norm = nn.LayerNorm(san_dim)
         self.encoder = TransformerEncoder(encoder_layer, 2, encoder_norm)
 
-        decoder_layer = TransformerDecoderLayer(san_dim, 2, san_head_dim, 0.1)
+        decoder_layer = TransformerDecoderLayer(san_dim, 1, san_head_dim, 0.1)
         decoder_norm = nn.LayerNorm(san_dim)
         self.decoder = TransformerDecoder(decoder_layer, 2, decoder_norm)
         self.decoder_embeddings = nn.Sequential(self.gcn.embeddings,
@@ -212,7 +213,7 @@ class HINT(nn.Module):
         self.linear = nn.Sequential(
             nn.LayerNorm(san_dim),
             nn.LeakyReLU(),
-            nn.Linear(san_dim, author_size+1) # include pad
+            nn.Linear(san_dim, author_size+3) # include pad
         )
         self.node_class = nn.Sequential(
             nn.LeakyReLU(),
@@ -226,12 +227,17 @@ class HINT(nn.Module):
 
         x, edge_index = data.x, data.edge_index
         _, _, embeddings = self.gcn(edge_index.cuda(), x.cuda())
-        feature = sequence_pad(embeddings, data, pad_vector=self.special_token(torch.LongTensor([0]).cuda()))
-        target = output2seq(data, PAD_ID, max_len=feature.shape[1]).cuda()
+        
+
+        feature = embeddings#[ data.y == 1 ]
+        feature = feature.reshape(len(data.titleid), data.length, -1 )
+        feature = feature[ :, :data.known.max()+5, : ]
+        target = output2seq(data, PAD_ID, max_len=feature.shape[1]-1).cuda()
         bos_idx = torch.zeros( target.size(0), 1 ) + PAD_ID+1
         bos_idx = bos_idx.long().cuda()
         target = torch.cat([bos_idx, target], dim=1)
         target = self.decoder_embeddings(target)
+
         # src2, attn, q, k, v = self.stacked_encoder(feature)
         # src, _, q_, k_, v_ = self.stacked_decoder(src2)
         # sz_b, len_q, len_k, len_v = q.size(0), q.size(2), k.size(1), v.size(1)
@@ -265,15 +271,20 @@ class HINT(nn.Module):
 
 if __name__ == "__main__":
     from torch_geometric.data import DataLoader
-    from src.aminer import Aminer
+    from src.aminer import Aminer,PaddedDataLoader
     from src.gcn import StackedGCNDBLP
     dataset = Aminer()
-    model = HINT().cuda()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
-    loader = DataLoader(dataset, batch_size=8, shuffle=True, num_workers=4)
+    model = HINT(
+        paper_dim=6,
+        layers=[16, 16],
+    ).cuda()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    loader = PaddedDataLoader(dataset, batch_size=8, shuffle=True, num_workers=4)
     criterion = nn.CrossEntropyLoss(ignore_index=PAD_ID)
-    for epoch in range(5):
-        for data in loader:
+
+    for epoch in range(50):
+        loss_mini_batch = 0
+        for i, data in enumerate(loader):
             label_mask_id = obtain_loss_mask(data.x[ :, 0 ], 
                 data.label_mask, 
                 874608, 
@@ -288,13 +299,17 @@ if __name__ == "__main__":
             label_mask_id = label_mask_id.repeat(1, output.shape[1], 1).cuda()
             target = output2seq(data, PAD_ID, max_len=output.shape[1]).cuda()
 
-            pred = masked_softmax(output, label_mask_id)
+            # pred = masked_softmax(output, label_mask_id)
+            pred = output
             node_loss = criterion(label_pred, x[:, -1])
-            pred_loss = criterion(pred.reshape(-1, PAD_ID+1), target.flatten()) / pred.shape[1]
+
+            pred_loss = criterion(pred.reshape(-1, PAD_ID+3), target.flatten()) / pred.shape[1]
             loss =  5*pred_loss + node_loss
+            # loss = node_loss
             optimizer.zero_grad()
+
             loss.backward()
+
             optimizer.step()
             print(loss.item(), pred_loss.item(), node_loss.item())
-
 

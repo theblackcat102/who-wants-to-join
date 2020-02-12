@@ -310,8 +310,6 @@ def graph2data(G, titleid):
     # does the order of sub-graph index matter?
     # seems to me it's relative to one and another?
 
-    for n in G.nodes:
-        graph_idx[n] = len(graph_idx)
 
     nodes = []
     edges = []
@@ -337,21 +335,7 @@ def graph2data(G, titleid):
             torch.from_numpy(
                 np.array([node_attributes['id'], node_attributes['known'], node_type])))
 
-        edge_index = list(G.edges(n))
-        new_edges = []
-        for idx in range(len(edge_index)):
-            src, dst = edge_index[idx]
-            # ignore link paper and predict author
-            # if G.nodes[src]['known'] and G.nodes[src]['predict'] == 1 and G.nodes[dst]['type'] == 'p':
-            #     continue
-            # else:
-            new_edges.append([graph_idx[src], graph_idx[dst]])
 
-            # bidirected with authors
-            if G.nodes[src]['type'] == 'a' and G.nodes[dst]['type'] == 'a':
-                new_edges.append([graph_idx[dst], graph_idx[src]])
-
-        edges.append(new_edges)
         nodes.append(node_latent)
         if node_type == 0:
             loss_mask.append(1)
@@ -359,6 +343,30 @@ def graph2data(G, titleid):
             loss_mask.append(0)
 
         labels.append(node_attributes['predict'])
+
+    nodes_id = np.array([n for n in G.nodes])
+    inputs = np.array(inputs)
+    resort_idx = np.argsort(-inputs)
+    nodes_id = nodes_id[ resort_idx ]
+    x = torch.stack(nodes)[resort_idx]
+    y = torch.from_numpy(np.array(labels))[resort_idx]
+    input_mask = torch.from_numpy(inputs)[resort_idx]
+    loss_mask = torch.from_numpy(np.array(loss_mask))[resort_idx]
+
+    for n in nodes_id:
+        graph_idx[n] = len(graph_idx)
+
+    for n in nodes_id:
+        edge_index = list(G.edges(n))
+        new_edges = []
+        for idx in range(len(edge_index)):
+            src, dst = edge_index[idx]
+            new_edges.append([graph_idx[src], graph_idx[dst]])
+
+            # bidirected with authors
+            if G.nodes[src]['type'] == 'a' and G.nodes[dst]['type'] == 'a':
+                new_edges.append([graph_idx[dst], graph_idx[src]])
+        edges.append(new_edges)
 
     x = torch.stack(nodes)
     y = torch.from_numpy(np.array(labels))
@@ -500,8 +508,111 @@ class Aminer(Dataset):
         filename = self.processed_file_idx[idx]
         data = torch.load(filename)
         data.size = torch.from_numpy(np.array([len(data.x)]))
+        data.known = torch.from_numpy(np.array([ (data.input_mask == 1).sum()]))
         return data
+
+class BatchPadData(Data):
+    r"""A plain old python object modeling a batch of graphs as one big
+    (dicconnected) graph. With :class:`torch_geometric.data.Data` being the
+    base class, all its methods can also be used here.
+    In addition, single graphs can be reconstructed via the assignment vector
+    :obj:`batch`, which maps each node to its respective graph identifier.
+    """
+
+    """
+    Pad features into a fixed size feature
+    """
+
+    def __init__(self, batch=None, **kwargs):
+        super(BatchPadData, self).__init__(**kwargs)
+        self.batch = batch
+
+    @staticmethod
+    def from_data_list(data_list, pad_idx=874608):
+        batch = BatchPadData()
+        keys = ['x', 'y', 'label_mask', 'input_mask', 'edge_index', 'titleid', 'size', 'batch', 'size', 'known']
+        for key in keys:
+            #print(key)
+            batch[key] = []
+
+        cumsum_edge = 0
+        max_size = 0
+        for data in data_list:
+            data_len = len(data.x)
+            max_size = data_len if max_size < data_len else max_size
+
+        for idx, data in enumerate(data_list):
+
+            for key in ['titleid', 'size', 'known']:
+                batch[key].append(data[key])
+
+            for key in ['edge_index']:
+                item = data[key]
+                item = item + cumsum_edge if batch.cumsum(key, item) else item
+                batch[key].append(item)
+
+            seq_len = len(data['y'])
+            for key in ['y', 'label_mask', 'input_mask']:
+                item = data[key]
+                attribute = item
+                if (max_size - seq_len) > 0 :
+                    pad_ = torch.from_numpy(np.array([0]*(max_size-seq_len)))
+                    attribute =  torch.cat((attribute, pad_))
+                batch[key].append(attribute)
+
+            attribute = data['x']
+            if (max_size - seq_len) > 0 :
+                pad_ = torch.from_numpy(np.array([[pad_idx, 0, 0]]*(max_size-seq_len)))
+                attribute =  torch.cat((attribute, pad_))
+            batch['x'].append(attribute)
+            batch['batch'].append( torch.from_numpy(np.array([idx]*max_size)) )
+
+        for key in ['x', 'y', 'label_mask', 'input_mask', 'edge_index', 'titleid', 'size', 'batch', 'known']:
+            batch[key] = torch.cat(
+                batch[key], dim=batch.cat_dim(key))
+
+        batch['length'] = max_size
+        return batch.contiguous()
+
+    def cat_dim(self, key):
+        return -1 if key in ['edge_index'] else 0
+
+    def cumsum(self, key, item):
+        return key in ['edge_index']
+    
+    @property
+    def num_graphs(self):
+        """Returns the number of graphs in the batch."""
+        return self.batch[-1].item() + 1
+
+
+
+class PaddedDataLoader(torch.utils.data.DataLoader):
+    r"""Data loader which merges data objects from a
+    :class:`torch_geometric.data.dataset` to a mini-batch.
+    Args:
+        dataset (Dataset): The dataset from which to load the data.
+        batch_size (int, optional): How may samples per batch to load.
+            (default: :obj:`1`)
+        shuffle (bool, optional): If set to :obj:`True`, the data will be
+            reshuffled at every epoch (default: :obj:`True`)
+    """
+
+    def __init__(self, dataset, batch_size=1, shuffle=True, **kwargs):
+        super(PaddedDataLoader, self).__init__(
+            dataset,
+            batch_size,
+            shuffle,
+            collate_fn=lambda data_list: BatchPadData.from_data_list(data_list),
+            **kwargs)
+
 
 if __name__ == "__main__":
     # init_dblp()
-    Aminer()
+    dataset = Aminer()
+    dataloader = PaddedDataLoader(dataset, batch_size=8)
+    for batch in dataloader:
+        print(batch)
+        print(len(batch.size))
+        print(batch.x.reshape(-1, batch.length, 3).shape)
+        break

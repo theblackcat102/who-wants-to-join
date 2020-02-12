@@ -14,7 +14,7 @@ import torch.nn as nn
 from src.skipgram import generate_batch, SkipGramNeg, data_to_networkx_, sample_walks
 from src.utils import dict2table, confusion, str2bool
 from src.hint import HINT, obtain_loss_mask, output2seq, masked_softmax
-
+from src.aminer import PaddedDataLoader
 PAD_ID = 874608
 
 class HINT_Trainer():
@@ -81,11 +81,14 @@ class HINT_Trainer():
                     val_data.batch)
                 x, edge_index = val_data.x, val_data.edge_index
                 x = x.cuda()
-                output, _, label_pred = model(val_data)
+                output, label_pred = model(val_data)
+
+                output = output.transpose(1, 0)
+
                 label_mask_id = label_mask_id.unsqueeze(1)
                 label_mask_id = label_mask_id.repeat(1, output.shape[1], 1).cuda()
                 target = output2seq(val_data, PAD_ID, max_len=output.shape[1]).cuda()
-                
+
                 pred = masked_softmax(output, label_mask_id)
                 pred = pred[:, :, :PAD_ID].argmax(2)
                 B = val_data.batch.max() + 1
@@ -120,16 +123,16 @@ class HINT_Trainer():
         print(val_size)
         # assert (len(set(self.valid_dataset.processed_file_idx+self.train_dataset.processed_file_idx))) == (train_size+val_size)
 
-        train_loader = DataLoader(self.train_dataset,
+        train_loader = PaddedDataLoader(self.train_dataset,
                                   batch_size=args.batch_size,
                                   shuffle=True,
                                   num_workers=6)
-        valid_loader = DataLoader(self.valid_dataset,
+        valid_loader = PaddedDataLoader(self.valid_dataset,
                                   batch_size=args.batch_size,
                                   shuffle=False,
                                   num_workers=6)
 
-        test_loader = DataLoader(self.test_dataset,
+        test_loader = PaddedDataLoader(self.test_dataset,
                                  batch_size=args.batch_size,
                                  shuffle=False,
                                  num_workers=6)
@@ -160,18 +163,21 @@ class HINT_Trainer():
         optimizer = torch.optim.Adam(
             model.parameters(), lr=args.lr, weight_decay=5e-4)
         scheduler = ReduceLROnPlateau(optimizer, 'max')
-        pos_weight = torch.ones([PAD_ID+1])*weight
+        pos_weight = torch.ones([PAD_ID+3])*weight
         self.pos_weight = pos_weight.cuda()
         pred_criterion = torch.nn.CrossEntropyLoss(weight=self.pos_weight, ignore_index=PAD_ID)
         node_criterion = torch.nn.CrossEntropyLoss()
 
         n_iter = 0
         best_f1 = 0
+        iter_size = 8
 
         self.writer.add_text('Text', dict2table(vars(args)), 0)
         with tqdm(total=len(train_loader)*epochs, dynamic_ncols=True) as pbar:
             for epoch in range(epochs):
-                for data in train_loader:
+                loss_mini_batch = 0
+
+                for i, data in enumerate(train_loader):
                     optimizer.zero_grad()
                     label_mask_id = obtain_loss_mask(data.x[ :, 0 ], 
                         data.label_mask, 
@@ -182,20 +188,22 @@ class HINT_Trainer():
                     output, label_pred = model(data)
 
                     output = output.transpose(1, 0)
-
-                    label_mask_id = label_mask_id.unsqueeze(1)
-                    label_mask_id = label_mask_id.repeat(1, output.shape[1], 1).cuda()
                     target = output2seq(data, PAD_ID, max_len=output.shape[1]).cuda()
+                    if epoch < 5:
+                        label_mask_id = label_mask_id.unsqueeze(1)
+                        label_mask_id = label_mask_id.repeat(1, output.shape[1], 1).cuda()
+                        
+                        pred = masked_softmax(output, label_mask_id)
+                    else:
+                        pred = output
 
-                    pred = masked_softmax(output, label_mask_id)
                     node_loss = node_criterion(label_pred, x[:, -1])
-                    pred_loss = pred_criterion(pred.reshape(-1, PAD_ID+1), target.flatten()) / pred.shape[1]
+                    pred_loss = pred_criterion(pred.reshape(-1, PAD_ID+3), target.flatten()) / pred.shape[1]
                     loss =  5*pred_loss + node_loss
-                    optimizer.zero_grad()
                     loss.backward()
                     optimizer.step()
 
-                    optimizer.step()
+
                     self.writer.add_scalar(
                         "Train/MemberLoss", pred_loss.item(), n_iter)
                     self.writer.add_scalar(
@@ -205,24 +213,24 @@ class HINT_Trainer():
                         "loss {:.4f}, epoch {}".format(loss.item(), epoch))
                     n_iter += 1
 
-                if epoch % args.eval == 0:
-                    print('Epoch: ', epoch)
-                    f1, recalls, precisions = self.evaluate(valid_loader,
-                                                            model)
-                    scheduler.step(f1)
-                    self.writer.add_scalar("Valid/F1", f1, n_iter)
-                    self.writer.add_scalar("Valid/Recalls", recalls, n_iter)
-                    self.writer.add_scalar("Valid/Precisions", precisions,
-                                           n_iter)
-                    if f1 > best_f1:
-                        best_f1 = f1
-                        best_checkpoint = {
-                            'epoch': epoch+1,
-                            'model': model.state_dict(),
-                            'optimizer': optimizer.state_dict(),
-                            'f1': f1
-                        }
-                    print(f1)
+                # if epoch % args.eval == 0:
+                #     print('Epoch: ', epoch)
+                #     f1, recalls, precisions = self.evaluate(valid_loader,
+                #                                             model)
+                #     scheduler.step(f1)
+                #     self.writer.add_scalar("Valid/F1", f1, n_iter)
+                #     self.writer.add_scalar("Valid/Recalls", recalls, n_iter)
+                #     self.writer.add_scalar("Valid/Precisions", precisions,
+                #                            n_iter)
+                #     if f1 > best_f1:
+                #         best_f1 = f1
+                #         best_checkpoint = {
+                #             'epoch': epoch+1,
+                #             'model': model.state_dict(),
+                #             'optimizer': optimizer.state_dict(),
+                #             'f1': f1
+                #         }
+                #     print(f1)
 
                 # if epoch % args.save == 0:
                 #     self.save_checkpoint({
@@ -347,9 +355,9 @@ if __name__ == "__main__":
     parser.add_argument('--author-dim', type=int, default=16)
     parser.add_argument('--paper-dim', type=int, default=16)
     parser.add_argument('--conf-dim', type=int, default=8)
-    parser.add_argument('--input-dim', type=int, default=32)
+    parser.add_argument('--input-dim', type=int, default=16)
     parser.add_argument('--dropout', type=float, default=0.1)
-    parser.add_argument('--layers', nargs='+', type=int, default=[32, 32])
+    parser.add_argument('--layers', nargs='+', type=int, default=[16, 16])
     parser.add_argument('--repeat-n', type=int, default=1)
     args = parser.parse_args()
 

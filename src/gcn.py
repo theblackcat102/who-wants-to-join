@@ -258,9 +258,10 @@ class StackedGCNDBLP(torch.nn.Module):
 
         self.embeddings = nn.Embedding(author_size, user_dim)
         self.known_embeddings = nn.Embedding(2, user_dim)
+        self.user_linear = nn.Linear(user_dim, input_channels)
         self.user_proj = nn.Sequential(
             nn.ReLU(),
-            nn.Linear(user_dim, input_channels)
+            self.user_linear
         )
         self.conf_embeddings = nn.Embedding(conf_size, conf_dim)
         self.conf_proj = nn.Sequential(
