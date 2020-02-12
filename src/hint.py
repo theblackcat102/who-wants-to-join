@@ -253,7 +253,7 @@ class HINT(nn.Module):
                               tgt_key_padding_mask=tgt_key_padding_mask,
                               memory_key_padding_mask=memory_key_padding_mask)
 
-        return self.linear(output), self.node_class(embeddings)    
+        return self.linear(output), self.node_class(embeddings)
 
     def generate_square_subsequent_mask(self, sz):
         r"""Generate a square mask for the sequence. The masked positions are filled with float('-inf').
