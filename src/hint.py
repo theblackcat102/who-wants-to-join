@@ -114,7 +114,6 @@ def sequence_pad(embeddings, data, pad_vector=None):
     batch_size = data.size
     input_mask = data.input_mask
     
-    
     features = torch.zeros(len(batch_size), batch_size.max(), embeddings.shape[-1])
     features = features.to(embeddings.device)
     max_seq_len = batch_size.max()
@@ -310,9 +309,7 @@ class HINT(nn.Module):
             pred_seq.append(output_idx)
 
         pred_seq = torch.cat(pred_seq, dim=0)
-        print(pred_seq.shape)
-        print(pred_seq[0])
-        return pred_seq.transpose(1, 0)
+        return pred_seq.transpose(1, 0) # convert to batch first
 
 if __name__ == "__main__":
     from torch_geometric.data import DataLoader

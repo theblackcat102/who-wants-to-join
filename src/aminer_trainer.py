@@ -90,14 +90,13 @@ class HINT_Trainer():
                 x, edge_index = val_data.x, val_data.edge_index
                 x = x.cuda()
                 pred = model.inference(val_data)
-
                 B = val_data.batch.max() + 1
                 target = output2seq(val_data, PAD_ID, max_len=val_data.known.max()+1)
                 y_pred = torch.FloatTensor(B, user_size+1)
                 y_target = torch.FloatTensor(B, user_size+1)
                 y_pred.zero_()
                 y_target.zero_()
-
+                print(target[0], pred[0])
                 for batch_idx in range(B):
                     y_target[batch_idx, target[batch_idx]] = 1
                     y_pred[batch_idx, pred[batch_idx] ] = 1
@@ -200,7 +199,7 @@ class HINT_Trainer():
 
                     node_loss = node_criterion(label_pred, x[:, -1])
                     pred_loss = pred_criterion(pred.reshape(-1, PAD_ID+3), target.flatten()) / pred.shape[1]
-                    loss =  5*pred_loss + node_loss
+                    loss = pred_loss + node_loss
                     loss.backward()
                     optimizer.step()
 
