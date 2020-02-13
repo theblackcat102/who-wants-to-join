@@ -85,7 +85,7 @@ def init_dblp():
         paper2authors[paper2id[p['title']]] = [author2id[a] for a in p['authors'] ]
 
 
-    with open('aminer/preprocess_dblp.pkl', 'wb') as f:
+    with open('aminer/preprocess_dblp_2.pkl', 'wb') as f:
         pickle.dump({'papers': papers,
             'author2id': author2id,
             'paper2id': paper2id,
@@ -114,12 +114,19 @@ def init_graph(papers, paper2id, conf2id, author2id, citation_graph, index2title
                 G.add_edge(p_id, n_p_id)
 
 
-        for a in p['authors']:
+        for idx, a in enumerate(p['authors']):
             a_id = 'a'+str(author2id[a])
 
             if not G.has_node(a_id):
                 G.add_node(a_id)
             G.add_edge(p_id, a_id)
+
+            if idx > 0:
+                b = paper['authors'][idx-1]
+                b_id = 'a'+str(author2id[b])
+                if not G.has_node(b_id):
+                    G.add_node(b_id)
+                G.add_edge(b_id, a_id)
 
 
         if 'conf' in p:
@@ -159,7 +166,7 @@ def append_paper_graph(H, paper, paper2id, conf2id, author2id, citation_graph, i
         H.add_node(c_id)
     H.add_edge(c_id, p_id)
 
-    for a in paper['authors']:
+    for idx, a in enumerate(paper['authors']):
         a_id = 'a'+str(author2id[a])
         if not H.has_node(a_id):
             H.add_node(a_id)
@@ -173,7 +180,12 @@ def append_paper_graph(H, paper, paper2id, conf2id, author2id, citation_graph, i
                 if not H.has_node(n_p_id):
                     H.add_node(n_p_id)
                 H.add_edge(p_id, n_p_id)
-
+        if idx > 0:
+            b = paper['authors'][idx-1]
+            b_id = 'a'+str(author2id[b])
+            if not H.has_node(b_id):
+                H.add_node(b_id)
+            H.add_edge(b_id, a_id)
     return H
 
 def append_paper_graph_baseline(H, paper, author2id):
@@ -417,9 +429,9 @@ class Aminer(Dataset):
         self.min_size = min_size
         self.max_size = max_size
         self.baseline = baseline
-        if not os.path.exists('aminer/preprocess_dblp.pkl'):
+        if not os.path.exists('aminer/preprocess_dblp_2.pkl'):
             init_dblp()
-        self.data_folder = 'dblp_v1'
+        self.data_folder = 'dblp_v2'
         if baseline:
             self.data_folder = 'dblp_hete_base'
         self.cache_file_prefix = '{}_{}_{}_{}_3'.format(
@@ -464,7 +476,7 @@ class Aminer(Dataset):
         return len(self.processed_file_idx)
 
     def init_preprocessing(self):
-        with open('aminer/preprocess_dblp.pkl', 'rb') as f:
+        with open('aminer/preprocess_dblp_2.pkl', 'rb') as f:
             dblp = pickle.load(f)
 
         papers = dblp['papers']

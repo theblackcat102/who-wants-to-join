@@ -245,10 +245,10 @@ def graph2data(G, name2id, member2topic, group2topic, category2id, group2id,
                 t_id = 't'+str(t)
                 if t_id not in graph_idx:
                     graph_idx[t_id] = len(graph_idx)
-                # no need to change topic2id
-                nodes.append(torch.from_numpy(np.array([t, -1, 1])))
-                loss_mask.append(0)
-                labels.append(0)
+                    # no need to change topic2id
+                    nodes.append(torch.from_numpy(np.array([t, -1, 1])))
+                    loss_mask.append(0)
+                    labels.append(0)
                 edges.append([[graph_idx[t_id], graph_idx[n]]])
     # group: 4
     nodes.append(torch.from_numpy(
@@ -257,6 +257,7 @@ def graph2data(G, name2id, member2topic, group2topic, category2id, group2id,
     labels.append(0)
     group_name = 'g'+str(G.graph['group_id'])
     graph_idx[group_name] = len(graph_idx)
+
     for n in G.nodes:
         edges.append([[graph_idx[n], graph_idx[group_name]]])
     # topic: 1
@@ -520,6 +521,7 @@ class Meetup(Dataset):
             res = pool.apply_async(async_graph_save, args=args, kwds=kwds)
             results.append(res)
             file_idx += 1
+            
             # if group_idx % 200 == 0 and group_idx != 0:
             #     sleep(10)
         # for res in results:
@@ -551,11 +553,11 @@ class Meetup(Dataset):
 
 if __name__ == "__main__":
     # from src.layers import StackedGCNMeetup
-    save_category_id()
-    save_topic_id()
-    save_member2topic()
-    save_group2topic()
-    build_initial_graph()
+    # save_category_id()
+    # save_topic_id()
+    # save_member2topic()
+    # save_group2topic()
+    # build_initial_graph()
     import argparse
     parser = argparse.ArgumentParser(
         description='Deepset Recommendation Model')

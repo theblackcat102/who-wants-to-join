@@ -5,9 +5,11 @@ from torch_geometric.data import DataLoader
 from src.amazon import AmazonCommunity
 from src.meetup import Meetup, locations_id
 from src.aminer import Aminer
+import numpy as np
+from scipy import stats as stat
 
 
-dataset_classes = [AmazonCommunity, Meetup, Aminer]
+dataset_classes = [AmazonCommunity, Aminer]
 default_kwargs = dict(cutoff=2, min_size=5, max_size=100)
 meetup_city = ['SF', 'NY']
 datasets = []
@@ -35,6 +37,7 @@ for dataset in datasets:
     stats["num_edges"] = 0
     stats["num_groups"] = 0
     stats["num_member_nodes"] = 0
+    member_sizes = []
     # stats["total_group_size"] = 0
     loader = DataLoader(dataset, batch_size=16, num_workers=4)
     for data in tqdm(loader, dynamic_ncols=True):
@@ -42,8 +45,11 @@ for dataset in datasets:
         stats["num_edges"] += len(data.edge_index[1])
         stats["num_groups"] += data.num_graphs
         stats["num_member_nodes"] += len(data.x[data.x[:, -1] == 0, 0])
+        member_sizes.append(len(data.x[data.x[:, -1] == 0, 0]))
     stats["avg_degree"] = stats["num_edges"] / stats["num_nodes"]
     stats["avg_group_size"] = stats["num_member_nodes"] / stats["num_groups"]
+    stats["median_group_size"] = np.median(member_sizes)
+    stats["mode_group_size"] = stat.mode(np.array(member_sizes))
     print(dataset_name+" finish!")
 
 
