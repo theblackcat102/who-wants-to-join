@@ -114,13 +114,19 @@ def init_graph(papers, paper2id, conf2id, author2id, citation_graph, index2title
                 G.add_edge(p_id, n_p_id)
 
 
-        for a in p['authors']:
+        for idx, a in enumerate(p['authors']):
             a_id = 'a'+str(author2id[a])
 
             if not G.has_node(a_id):
                 G.add_node(a_id)
             G.add_edge(p_id, a_id)
 
+            if idx > 0:
+                b = paper['authors'][idx-1]
+                b_id = 'a'+str(author2id[b])
+                if not G.has_node(b_id):
+                    G.add_node(b_id)
+                G.add_edge(b_id, a_id)
 
         if 'conf' in p:
             c_id = 'c'+str(conf2id[p['conf']])
@@ -134,7 +140,7 @@ def init_graph(papers, paper2id, conf2id, author2id, citation_graph, index2title
 def init_graph_baseline(papers, author2id):
     G = nx.Graph()
     for p in tqdm(papers):
-        for a in p['authors']:
+        for idx, a in enumerate(p['authors']):
             a_id = 'a'+str(author2id[a])
             if not G.has_node(a_id):
                 G.add_node(a_id)
@@ -146,6 +152,12 @@ def init_graph_baseline(papers, author2id):
 
                 if c_id != a_id:
                     G.add_edge(c_id, a_id)
+            if idx > 0:
+                b = paper['authors'][idx-1]
+                b_id = 'a'+str(author2id[b])
+                if not H.has_node(b_id):
+                    H.add_node(b_id)
+                H.add_edge(b_id, a_id)
 
     return G
 
@@ -159,7 +171,7 @@ def append_paper_graph(H, paper, paper2id, conf2id, author2id, citation_graph, i
         H.add_node(c_id)
     H.add_edge(c_id, p_id)
 
-    for a in paper['authors']:
+    for idx, a in enumerate(paper['authors']):
         a_id = 'a'+str(author2id[a])
         if not H.has_node(a_id):
             H.add_node(a_id)
@@ -173,11 +185,17 @@ def append_paper_graph(H, paper, paper2id, conf2id, author2id, citation_graph, i
                 if not H.has_node(n_p_id):
                     H.add_node(n_p_id)
                 H.add_edge(p_id, n_p_id)
+        if idx > 0:
+            b = paper['authors'][idx-1]
+            b_id = 'a'+str(author2id[b])
+            if not H.has_node(b_id):
+                H.add_node(b_id)
+            H.add_edge(b_id, a_id)
 
     return H
 
 def append_paper_graph_baseline(H, paper, author2id):
-    for a in paper['authors']:
+    for idx, a in enumerate(paper['authors']):
         a_id = 'a'+str(author2id[a])
         for c in paper['authors'][1:]:
             c_id = 'a'+str(author2id[c])
@@ -185,6 +203,14 @@ def append_paper_graph_baseline(H, paper, author2id):
                 H.add_node(c_id)
             if c_id != a_id:
                 H.add_edge(c_id, a_id)
+        if idx > 0:
+            b = paper['authors'][idx-1]
+            b_id = 'a'+str(author2id[b])
+            if not H.has_node(b_id):
+                H.add_node(b_id)
+            H.add_edge(b_id, a_id)
+
+
     return H
 
 

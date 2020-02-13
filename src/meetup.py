@@ -245,10 +245,10 @@ def graph2data(G, name2id, member2topic, group2topic, category2id, group2id,
                 t_id = 't'+str(t)
                 if t_id not in graph_idx:
                     graph_idx[t_id] = len(graph_idx)
-                # no need to change topic2id
-                nodes.append(torch.from_numpy(np.array([t, -1, 1])))
-                loss_mask.append(0)
-                labels.append(0)
+                    # no need to change topic2id
+                    nodes.append(torch.from_numpy(np.array([t, -1, 1])))
+                    loss_mask.append(0)
+                    labels.append(0)
                 edges.append([[graph_idx[t_id], graph_idx[n]]])
     # group: 4
     nodes.append(torch.from_numpy(
@@ -266,9 +266,9 @@ def graph2data(G, name2id, member2topic, group2topic, category2id, group2id,
             t_id = 't'+str(t)
             if t_id not in graph_idx:
                 graph_idx[t_id] = len(graph_idx)
-            nodes.append(torch.from_numpy(np.array([topic2id[t], -1, 1])))
-            loss_mask.append(0)
-            labels.append(0)
+                nodes.append(torch.from_numpy(np.array([topic2id[t], -1, 1])))
+                loss_mask.append(0)
+                labels.append(0)
             new_edges.append([graph_idx[t_id], graph_idx[group_name]])
         edges.append(new_edges)
     # category: 2
