@@ -345,14 +345,11 @@ def graph2data(G, titleid):
 
         node_latent = Variable(
             torch.from_numpy(
-                np.array([node_attributes['id'], node_attributes['known'], node_type])))
-
+                np.array([node_attributes['id'],
+                node_attributes['known'], 
+                node_type])))
 
         nodes.append(node_latent)
-        if node_type == 0:
-            loss_mask.append(1)
-        else:
-            loss_mask.append(0)
 
         labels.append(node_attributes['predict'])
 
@@ -363,7 +360,7 @@ def graph2data(G, titleid):
     x = torch.stack(nodes)[resort_idx]
     y = torch.from_numpy(np.array(labels))[resort_idx]
     input_mask = torch.from_numpy(inputs)[resort_idx]
-    loss_mask = torch.from_numpy(np.array(loss_mask))[resort_idx]
+    loss_mask = (x[:, 2] == 0)
 
     for n in nodes_id:
         graph_idx[n] = len(graph_idx)
@@ -380,14 +377,10 @@ def graph2data(G, titleid):
                 new_edges.append([graph_idx[dst], graph_idx[src]])
         edges.append(new_edges)
 
-    x = torch.stack(nodes)
-    y = torch.from_numpy(np.array(labels))
-    input_mask = torch.from_numpy(np.array(inputs))
-    loss_mask = torch.from_numpy(np.array(loss_mask))
     edges = torch.from_numpy(np.transpose(np.concatenate(edges))).contiguous()
 
-    data = Data(x=x, edge_index=edges, y=y, label_mask=loss_mask, input_mask=input_mask,
-        titleid=torch.from_numpy(np.array([titleid])))
+    data = Data(x=x, edge_index=edges, y=y, label_mask=loss_mask,
+                input_mask=input_mask, titleid=torch.from_numpy(np.array([titleid])))
     # add output mask to mask additional nodes : category, venue, topic node
     return data
 
@@ -568,8 +561,11 @@ class BatchPadData(Data):
                 item = data[key]
                 attribute = item
                 if (max_size - seq_len) > 0 :
-                    pad_ = torch.from_numpy(np.array([0]*(max_size-seq_len)))
-                    attribute =  torch.cat((attribute, pad_))
+                    val = 0
+                    if key == 'label_mask':
+                        val = False
+                    pad_ = torch.from_numpy(np.array([val]*(max_size-seq_len)))
+                    attribute = torch.cat((attribute, pad_))
                 batch[key].append(attribute)
 
             attribute = data['x']

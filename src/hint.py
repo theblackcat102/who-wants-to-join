@@ -11,6 +11,60 @@ PAD_ID = 874608
 BOS_ID = PAD_ID+1
 EOS_ID = PAD_ID+2
 
+class LuongAttention(nn.Module):
+    """Implementation of Luong Attention
+    reference:
+        Effective Approaches to Attention-based Neural Machine Translation
+        Minh-Thang Luong, Hieu Pham, Christopher D. Manning
+        https://arxiv.org/abs/1508.04025
+    """
+    def __init__(self, encoder_hidden_size, decoder_hidden_size, score='dot'):
+        super(LuongAttention, self).__init__()
+        self.softmax = nn.Softmax(dim=-1)
+        self.score = score
+        if score == 'dot':
+            assert(encoder_hidden_size == decoder_hidden_size)
+        elif score == 'general':
+            self.linear = nn.Linear(decoder_hidden_size, encoder_hidden_size)
+        else:
+            assert(False)
+
+    def compute_energy(self, decoder_outputs, encoder_outputs):
+        if self.score == 'dot':
+            # [B x Tou x H_decoder] x [B x Tin x H_encoder] -> [B x Tou x Tin]
+            attn_weight = torch.bmm(
+                decoder_outputs, encoder_outputs.transpose(1, 2))
+        if self.score == 'general':
+            # [B x Tou x H_encoder]
+            decoder_outputs = self.linear(decoder_outputs)
+            # [B x Tou x H_decoder] x [B x Tin x H_encoder] -> [B x Tou x Tin]
+            attn_weight = torch.bmm(
+                decoder_outputs, encoder_outputs.transpose(1, 2))
+        return attn_weight
+
+    def forward(self, decoder_outputs, encoder_outputs):
+        """Support batch operation.
+        Output size of encoder and decoder must be equal.
+        Args:
+            decoder_outputs: float tensor, shape = [B x Tou x H_decoder]
+            encoder_outputs: float tensor, shape = [B x Tin x H_encoder]
+        Returns:
+            output: float tensor, shape = [B x Tou x (2 x H_decoder)]
+            attn_weight: float tensor, shape = [B x Tou x Tin]
+        """
+        decoder_outputs = decoder_outputs.transpose(1, 0)
+        encoder_outputs = encoder_outputs.transpose(1, 0)
+
+        attn_weight = self.compute_energy(decoder_outputs, encoder_outputs)
+        attn_weight = self.softmax(attn_weight)
+        # [B x Tou x Tin] * [B x Tin x H] -> [B, Tou, H]
+        attn_encoder_outputs = torch.bmm(attn_weight, encoder_outputs)
+        # concat [B x Tou x H], [B x Tou x H] -> [B x Tou x (2 x H)]
+        output = torch.cat([decoder_outputs, attn_encoder_outputs], dim=-1)
+        output = output.transpose(1, 0)
+        return output, attn_weight
+
+
 class SingleHeadAttention(nn.Module):
     ''' Single-Head Attention module '''
     def __init__(self, d_model, d_k, d_v, dropout=0.1):
@@ -47,7 +101,7 @@ class SingleHeadAttention(nn.Module):
 
         # Transpose for attention dot product: b x n x lq x dv
         q, k, v = q.transpose(1, 2), k.transpose(1, 2), v.transpose(1, 2)
-        
+
         if mask is not None:
             mask = mask.unsqueeze(1)   # For head axis broadcasting.
 
@@ -84,13 +138,15 @@ class ScaledDotProductAttention(nn.Module):
 
 class SAN(nn.Module):
 
-    def __init__(self, input_dim, head_dim=16 ,dropout=0.1, output_query=False):
+    def __init__(self, input_dim, head_dim=16, dropout=0.1,
+            output_query=False):
         super().__init__()
-        self.self_attn = SingleHeadAttention(input_dim, head_dim, head_dim, dropout=dropout)
-        self.dropout1 = nn.Dropout(dropout) 
+        self.self_attn = SingleHeadAttention(input_dim, head_dim, head_dim,
+            dropout=dropout)
+        self.dropout1 = nn.Dropout(dropout)
 
         # self.linear1 = nn.Linear(input_dim, ff_dim)
-        # self.dropout = nn.Dropout(dropout) 
+        # self.dropout = nn.Dropout(dropout)
         # self.dropout2 = nn.Dropout(dropout)
         # self.linear2 = nn.Linear(ff_dim, input_dim)
         # self.activation = nn.ReLU()
@@ -113,7 +169,7 @@ def sequence_pad(embeddings, data, pad_vector=None):
     batch = data.batch
     batch_size = data.size
     input_mask = data.input_mask
-    
+
     features = torch.zeros(len(batch_size), batch_size.max(), embeddings.shape[-1])
     features = features.to(embeddings.device)
     max_seq_len = batch_size.max()
@@ -139,7 +195,7 @@ def obtain_loss_mask(x, label_mask, embedding_size, batch):
     label_bool = label_mask == 1
 
     for idx in range(batch_size):
-        label_mask_id = x[ (batch == idx) & label_bool ]        
+        label_mask_id = x[ (batch == idx) & label_bool ]
         mask[ idx, label_mask_id ] = 1
         mask[idx, -1] = 1
         mask[idx,  [embedding_size, embedding_size+1, embedding_size+2] ] = 1
@@ -168,17 +224,16 @@ def masked_softmax(vec, mask, dim=1):
     return masked_exps/masked_sums
 
 
-
 class HINT(nn.Module):
-    def __init__(self, san_dim=16, 
+    def __init__(self, san_dim=16,
         author_size=874608, paper_size=3605603, conf_size=12770,
-        user_dim=8,
-        paper_dim=8,
+        user_dim=8, paper_dim=8,
         conf_dim=4,
         input_channels=16,
         layers=[32, 32],
         dropout=0.1,
-        san_head_dim=32, 
+        san_head_dim=32,
+        use_attn=False
         ):
         super().__init__()
         self.author_size = ( author_size+3, user_dim)
@@ -189,7 +244,7 @@ class HINT(nn.Module):
                     paper_size=paper_size,#len(paper2id),
                     conf_size=conf_size,
                     output_channels=san_dim,
-                    user_dim=user_dim, paper_dim=paper_dim, conf_dim=conf_dim, input_channels=input_channels, 
+                    user_dim=user_dim, paper_dim=paper_dim, conf_dim=conf_dim, input_channels=input_channels,
                     layers=layers, dropout=dropout)
 
         self.special_token = nn.Embedding(3, san_dim)
@@ -214,16 +269,23 @@ class HINT(nn.Module):
         #     # SAN(san_dim, dropout=dropout),
         #     SAN(san_dim, dropout=dropout, output_query=True),
         # )
+        self.use_attn = use_attn
+        output_dim = san_dim
+        if self.use_attn:
+            self.attn = LuongAttention(san_dim, san_dim)
+            output_dim = san_dim*2
+
         self.linear = nn.Sequential(
-            nn.LayerNorm(san_dim),
+            nn.LayerNorm(output_dim),
             nn.LeakyReLU(),
-            nn.Linear(san_dim, author_size+3) # include pad
+            nn.Linear(output_dim, author_size+3) # include pad
         )
         self.node_class = nn.Sequential(
             nn.LeakyReLU(),
             nn.Linear(san_dim, 3)
         )
-        self.attn = ScaledDotProductAttention(1)
+
+        # self.attn = ScaledDotProductAttention(1)
 
     def forward(self, data, src_mask=None, tgt_mask=None,
                 memory_mask=None, src_key_padding_mask=None,
@@ -231,13 +293,13 @@ class HINT(nn.Module):
 
         x, edge_index = data.x, data.edge_index
         _, _, embeddings = self.gcn(edge_index.cuda(), x.cuda())
-        
+
 
         feature = embeddings#[ data.y == 1 ]
         feature = feature.reshape(len(data.titleid), data.length, -1 )
         # the last token should replace as EOS, but not sure how to execute this elegantly
-        feature = feature[ :, :data.known.max()+1, : ] 
-        
+        feature = feature[ :, :data.known.max()+1, : ]
+
         target = output2seq(data, PAD_ID, max_len=feature.shape[1]-1).cuda()
         bos_idx = torch.zeros( target.size(0), 1 ) + PAD_ID+1
         bos_idx = bos_idx.long().cuda()
@@ -264,7 +326,8 @@ class HINT(nn.Module):
         output = self.decoder(target, memory, tgt_mask=tgt_mask, memory_mask=memory_mask,
                               tgt_key_padding_mask=tgt_key_padding_mask,
                               memory_key_padding_mask=memory_key_padding_mask)
-
+        if self.use_attn:
+            output, attn = self.attn(memory, output)
         return self.linear(output), self.node_class(embeddings)
 
     def generate_square_subsequent_mask(self, sz):
@@ -274,33 +337,35 @@ class HINT(nn.Module):
         mask = (torch.triu(torch.ones(sz, sz)) == 1).transpose(0, 1)
         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
         return mask
-    
+
     def inference(self, data):
         # greedy decoding
         x, edge_index = data.x, data.edge_index
         _, _, embeddings = self.gcn(edge_index.cuda(), x.cuda())
-        feature = embeddings#[ data.y == 1 ]
-        feature = feature.reshape(len(data.titleid), data.length, -1 )
+        feature = embeddings  #[ data.y == 1 ]
+        feature = feature.reshape(len(data.titleid), data.length, -1)
         max_length = data.known.max()+1
-        feature = feature[ :, :data.known.max()+1, : ]
+        feature = feature[:, :data.known.max()+1, :]
         feature = feature.transpose(1, 0)
         memory = self.encoder(feature)
-        tokens = []
-        bos_idx = torch.zeros( 1, memory.size(1) ) + PAD_ID + 1
+        bos_idx = torch.zeros(1, memory.size(1)) + PAD_ID + 1
         targets = bos_idx.long().cuda()
         pred_seq = []
 
-        label_mask_id = obtain_loss_mask(data.x[ :, 0 ], 
-                        data.label_mask, 
-                        PAD_ID, 
+        label_mask_id = obtain_loss_mask(data.x[ :, 0 ],
+                        data.label_mask,
+                        PAD_ID,
                         data.batch )
         label_mask_id = label_mask_id.unsqueeze(0).cuda()
 
         for idx in range(max_length):
             target = self.decoder_embeddings(targets)
-            output = self.decoder(target, memory)
-            memory = torch.cat([memory, output], dim=0)
-
+            decoder_output = self.decoder(target, memory)
+            if self.use_attn:
+                output, attn = self.attn(memory, decoder_output)
+            else:
+                output = decoder_output
+            memory = torch.cat([memory, decoder_output], dim=0)
             output = self.linear(output)
             pred = masked_softmax(output, label_mask_id)
             output_idx = pred.argmax(2)
@@ -327,9 +392,9 @@ if __name__ == "__main__":
     for epoch in range(50):
         loss_mini_batch = 0
         for i, data in enumerate(loader):
-            label_mask_id = obtain_loss_mask(data.x[ :, 0 ], 
-                data.label_mask, 
-                874608, 
+            label_mask_id = obtain_loss_mask(data.x[ :, 0 ],
+                data.label_mask,
+                874608,
                 data.batch )
             x, edge_index = data.x, data.edge_index
             x = x.cuda()
@@ -354,4 +419,3 @@ if __name__ == "__main__":
 
             optimizer.step()
             print(loss.item(), pred_loss.item(), node_loss.item())
-

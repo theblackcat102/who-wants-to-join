@@ -214,5 +214,5 @@ def calculFScore(i,j):
         fscore=0
     else:
         fscore=2*(precision*recall)/(precision+recall)
-    return fscore
+    return fscore, precision, recall
 ```

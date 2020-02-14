@@ -9,7 +9,7 @@ import torch
 import pickle
 from copy import deepcopy
 from tqdm import tqdm
-from src.utils import dict2table, confusion, str2bool
+from src.utils import dict2table, confusion, str2bool, calculate_f_score
 from torch.utils.tensorboard import SummaryWriter
 import numpy as np
 import json
@@ -22,12 +22,13 @@ import random
 """
 class RankingTrainer():
 
-    def __init__(self, name, model, dataset, shuffle_idx, 
-        user_size, batch_size=64, top_k=5, args=None):
+    def __init__(self, name, model, dataset, shuffle_idx,
+        user_size, batch_size=64, top_k=5, args=None, lr=0.0005):
         self.name = name
         self.model = model
         self.user_size = user_size
         self.top_k = top_k
+        self.lr = lr
 
         dataset = dataset[shuffle_idx]
 
@@ -52,7 +53,7 @@ class RankingTrainer():
 
 
     def calculate_loss(self, outputs, batch, batch_size, margin=5):
-        # calculate triple ranking loss 
+        # calculate triple ranking loss
         total_neg = 0
         total_pos = 0
         N = 0
@@ -100,7 +101,7 @@ class RankingTrainer():
         loss = (total_pos+total_neg) / (batch_size*2)
         # loss = total_neg/(N*2)#log_sigmoid(total_pos + total_neg)/ (batch_size*2)
         return -loss
-    
+
     def inference(self, outputs, x, batch, top_k=10, user_size=874608):
         B = torch.max(batch)+1
         y_pred = torch.FloatTensor(B, user_size)
@@ -134,6 +135,7 @@ class RankingTrainer():
         model.eval()
         recalls = []
         precisions = []
+        R, P = [], []
         B = self.batch_size
         val_loss = 0
         with torch.no_grad():
@@ -144,9 +146,9 @@ class RankingTrainer():
                 outputs = model(edge_index, x)
                 val_loss += self.calculate_loss(outputs, batch, B)
 
-                outputs = outputs.cpu()       
+                outputs = outputs.cpu()
                 x = x.cpu()
-                y_pred = self.inference(outputs, x, batch.batch, 
+                y_pred = self.inference(outputs, x, batch.batch,
                     user_size=user_size, top_k=self.top_k)
 
                 B = torch.max(batch.batch)+1
@@ -156,6 +158,10 @@ class RankingTrainer():
                     paper_idx = (batch.batch == batch_idx)
                     user_id = batch.x[ (batch.y==1) & paper_idx, 0 ]
                     y_target[batch_idx, user_id] = 1
+
+                    _, r, p = calculate_f_score((y_pred[batch_idx, :] == 1).nonzero(), user_id)
+                    R.append(r)
+                    P.append(p)
 
                 # print(y_pred.sum(), y_target.sum())
 
@@ -169,6 +175,11 @@ class RankingTrainer():
         avg_recalls = np.mean(recalls)
         avg_precisions = np.mean(precisions)
         f1 = 2*(avg_recalls*avg_precisions)/(avg_recalls+avg_precisions)
+
+        avg_R, avg_P = np.mean(R), np.mean(P)
+        F = 2*(avg_R*avg_P)/(avg_R+avg_P)
+        print(F, f1)
+
         model.train()
         return f1, avg_recalls, avg_precisions, val_loss/len(dataloader)
 
@@ -190,7 +201,7 @@ class RankingTrainer():
         model = self.model
         model = model.cuda()
         optimizer = torch.optim.Adam(
-            model.parameters(), lr=0.0005, weight_decay=5e-4)
+            model.parameters(), lr=self.lr, weight_decay=5e-4)
         n_iter = 0
         with tqdm(total=len(train_loader)*epochs, dynamic_ncols=True) as pbar:
             for epoch in range(epochs):
@@ -211,7 +222,7 @@ class RankingTrainer():
                         "loss {:.4f}, epoch {}".format(loss.item(), epoch))
                     n_iter += 1
                 if epoch % 5 == 0:
-                    f1, recalls, precisions, val_loss = self.evaluate(valid_loader, model, 
+                    f1, recalls, precisions, val_loss = self.evaluate(valid_loader, model,
                         user_size=self.user_size)
                     self.writer.add_scalar(
                         "Val/loss", val_loss.item(), n_iter)
@@ -229,7 +240,7 @@ class RankingTrainer():
                         }
                     print(f1)
 
-        f1, recalls, precisions, val_loss = self.evaluate(valid_loader, model, 
+        f1, recalls, precisions, val_loss = self.evaluate(valid_loader, model,
             user_size=self.user_size)
         self.writer.add_scalar(
             "Val/loss", val_loss.item(), n_iter)
@@ -247,7 +258,7 @@ class RankingTrainer():
             }
         print(f1)
         model.load_state_dict(best_checkpoint["model"])
-        f1, recalls, precisions, loss = self.evaluate(test_loader, model)    
+        f1, recalls, precisions, loss = self.evaluate(test_loader, model)
         print(f1, recalls, precisions)
         self.writer.add_scalar("Test/F1", f1, n_iter)
         self.writer.add_scalar("Test/Recalls", recalls, n_iter)
@@ -302,7 +313,7 @@ def evaluate_dblp(parser):
             'loss': []
         }
     for i in range(args.repeat_n):
-        trainer = RankingTrainer('aminer',model, dataset, shuffle_idx, 
+        trainer = RankingTrainer('aminer',model, dataset, shuffle_idx,
             user_size=874608, top_k=args.top_k, args=args)
         f1, recalls, precisions, loss = trainer.train(epochs=args.epochs, batch_size=args.batch_size)
         values['f1'].append(f1)
@@ -373,7 +384,7 @@ def evaluate_meetup(parser):
         }
     for i in range(args.repeat_n):
 
-        trainer = RankingTrainer('meetup_'+str(args.city)+'_', model, dataset, shuffle_idx, 
+        trainer = RankingTrainer('meetup_'+str(args.city)+'_', model, dataset, shuffle_idx,
             user_size=len(dataset.user2id), top_k=args.top_k, args=args)
         f1, recalls, precisions, loss = trainer.train(epochs=args.epochs, batch_size=args.batch_size)
         values['f1'].append(f1)
@@ -438,7 +449,7 @@ def evaluate_amazon(parser):
             'loss': []
         }
     for i in range(args.repeat_n):
-        trainer = RankingTrainer('amazon_', model, dataset, shuffle_idx, 
+        trainer = RankingTrainer('amazon_', model, dataset, shuffle_idx,
             user_size=len(dataset.user2id), top_k=args.top_k, args=args)
         f1, recalls, precisions, loss = trainer.train(epochs=args.epochs, batch_size=args.batch_size)
         values['f1'].append(f1)
@@ -470,11 +481,11 @@ if __name__ == "__main__":
     parser.add_argument('--top-k', type=int, default=5)
     parser.add_argument('--epochs', type=int, default=50)
     parser.add_argument('--batch-size', type=int, default=32)
-    parser.add_argument('--weights', type=str, default='', 
+    parser.add_argument('--weights', type=str, default='',
         help='load pretrain GNN weights')
     parser.add_argument('--repeat-n', type=int, default=1)
 
     if sys.argv[1] in ['aminer', 'meetup', 'amazon']:
-        dataset_function_map[sys.argv[1]](parser)    
+        dataset_function_map[sys.argv[1]](parser)
     else:
-        print('Valid dataset are aminer, meetup, amazon')        
+        print('Valid dataset are aminer, meetup, amazon')

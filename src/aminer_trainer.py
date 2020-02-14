@@ -13,7 +13,7 @@ import os.path as osp
 import numpy as np
 import torch.nn as nn
 from src.skipgram import generate_batch, SkipGramNeg, data_to_networkx_, sample_walks
-from src.utils import dict2table, confusion, str2bool, TMP_WRITER_PATH
+from src.utils import dict2table, confusion, str2bool, TMP_WRITER_PATH, calculate_f_score
 from src.hint import HINT, obtain_loss_mask, output2seq, masked_softmax
 from src.aminer import PaddedDataLoader
 PAD_ID = 874608
@@ -78,6 +78,7 @@ class HINT_Trainer():
         model.eval()
         recalls = []
         precisions = []
+        R, P = [], []
         B = args.batch_size
         user_size = 874608
         print('Validation')
@@ -91,13 +92,17 @@ class HINT_Trainer():
                 x = x.cuda()
                 pred = model.inference(val_data)
                 B = val_data.batch.max() + 1
-                target = output2seq(val_data, PAD_ID, max_len=val_data.known.max()+1)
+                target = output2seq(val_data, PAD_ID, max_len=val_data.known.max()+1).cpu()
+                pred = pred.cpu()
                 y_pred = torch.FloatTensor(B, user_size+1)
                 y_target = torch.FloatTensor(B, user_size+1)
                 y_pred.zero_()
                 y_target.zero_()
-                print(target[0], pred[0])
+
                 for batch_idx in range(B):
+                    f1, precision, recall = calculate_f_score(target[batch_idx].nonzero(),  pred[batch_idx].nonzero() )                    
+                    R.append(recall)
+                    P.append(precision)
                     y_target[batch_idx, target[batch_idx]] = 1
                     y_pred[batch_idx, pred[batch_idx] ] = 1
 
@@ -108,9 +113,16 @@ class HINT_Trainer():
                 precisions.append(precision)
                 recalls.append(recall)
 
+
         avg_recalls = np.mean(recalls)
         avg_precisions = np.mean(precisions)
+        avg_R = np.mean(R)
+        avg_P = np.mean(P)
+        F1 = 2*(avg_R*avg_P)/(avg_R+avg_P)
+        print(F1)
+
         f1 = 2*(avg_recalls*avg_precisions)/(avg_recalls+avg_precisions)
+        print(f1)
         model.train()
         return f1, avg_recalls, avg_precisions
 

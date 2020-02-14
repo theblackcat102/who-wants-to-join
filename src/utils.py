@@ -167,3 +167,16 @@ def reset_idxes(G):
         mapping[old_idx] = new_idx
     new_G = nx.relabel_nodes(G, mapping, copy=True)
     return new_G, mapping
+
+
+def calculate_f_score(i, j):
+    i = [int(x) for x in i]
+    j = [int(x) for x in j]
+    inter=set(i).intersection(set(j))
+    precision=len(inter)/float(len(j))
+    recall=len(inter)/float(len(i))
+    if recall==0 and precision==0:
+        fscore=0
+    else:
+        fscore=2*(precision*recall)/(precision+recall)
+    return fscore, precision, recall
