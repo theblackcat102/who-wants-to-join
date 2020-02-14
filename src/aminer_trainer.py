@@ -1,5 +1,5 @@
 from datetime import datetime
-from src.aminer import Aminer
+from dataset.aminer import Aminer
 from torch_geometric.data import DataLoader
 import random
 import shutil
