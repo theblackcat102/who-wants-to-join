@@ -95,7 +95,7 @@ class ExtractSubstructureContextPair:
                                               self.l1, self.center)
 
 if __name__ == "__main__":
-    from src.meetup import Meetup
+    from dataset.meetup import Meetup
     extract = ExtractSubstructureContextPair(2, center=False)
     meetup = Meetup(transform=extract)
     for data in meetup:

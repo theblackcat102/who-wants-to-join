@@ -1,6 +1,6 @@
 from datetime import datetime
 from src.layers import StackedGCNMeetup, StackedGCNMeetupV2
-from src.meetup import Meetup, locations_id, MEETUP_FOLDER
+from dataset.meetup import Meetup, locations_id, MEETUP_FOLDER
 from torch_geometric.data import DataLoader
 import random
 import shutil

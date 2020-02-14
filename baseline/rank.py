@@ -322,7 +322,7 @@ def evaluate_dblp(parser):
 def evaluate_meetup(parser):
     print("Meetup")
     from baseline.models import StackedGCNMeetup
-    from src.meetup import Meetup, locations_id, MEETUP_FOLDER
+    from dataset.meetup import Meetup, locations_id, MEETUP_FOLDER
     group = parser.add_argument_group('arguments')
     group.add_argument('--city', type=str, default='SF',
                         choices=['NY', 'SF'])
@@ -394,7 +394,7 @@ def evaluate_meetup(parser):
 def evaluate_amazon(parser):
     print("Amazon")
     from baseline.models import StackedGCNAmazon
-    from src.amazon import AmazonCommunity
+    from dataset.amazon import AmazonCommunity
     group = parser.add_argument_group('arguments')
     group.add_argument('--user-dim', type=int, default=16)
     group.add_argument('--cat-dim', type=int, default=8)

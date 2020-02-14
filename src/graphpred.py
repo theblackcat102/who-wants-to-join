@@ -109,7 +109,7 @@ if __name__ == "__main__":
     import argparse
     from torch.utils.tensorboard import SummaryWriter
     from src.layers import StackedGCNMeetupV2
-    from src.meetup import Meetup, locations_id, MEETUP_FOLDER
+    from dataset.meetup import Meetup, locations_id, MEETUP_FOLDER
     from src.utils import str2bool, TMP_WRITER_PATH
     parser = argparse.ArgumentParser(
         description='Deepset Recommendation Model')

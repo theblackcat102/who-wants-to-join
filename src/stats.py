@@ -2,9 +2,9 @@ import json
 from tqdm import tqdm
 from collections import defaultdict
 from torch_geometric.data import DataLoader
-from src.amazon import AmazonCommunity
-from src.meetup import Meetup, locations_id
-from src.aminer import Aminer
+from dataset.amazon import AmazonCommunity
+from dataset.meetup import Meetup, locations_id
+from dataset.aminer import Aminer
 
 
 dataset_classes = [AmazonCommunity, Meetup, Aminer]
