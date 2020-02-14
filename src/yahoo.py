@@ -19,7 +19,7 @@ from datetime import datetime
 import numpy as np
 from src.utils import dict2table, pbar_listener, confusion
 from src.dataset import split_group, chunks
-from src.aminer import get_neighbour_nodes
+from dataset.aminer import get_neighbour_nodes
 from src.layers import StackedGCNYahoo
 import multiprocessing as mp
 

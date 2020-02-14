@@ -1,4 +1,4 @@
-from src.aminer import Aminer
+from dataset.aminer import Aminer
 from torch_geometric.data import DataLoader
 from src.layers import StackedGCNDBLP
 from datetime import datetime
@@ -391,7 +391,7 @@ def evaluate_meetup(parser):
 def evaluate_amazon(parser):
     print("Amazon")
     from src.layers import StackedGCNAmazon
-    from src.amazon import AmazonCommunity
+    from dataset.amazon import AmazonCommunity
     group = parser.add_argument_group('arguments')
     group.add_argument('--user-dim', type=int, default=16)
     group.add_argument('--cat-dim', type=int, default=8)

@@ -91,7 +91,7 @@ def train(args, model_substruct, model_context, loader, optimizer_substruct, opt
     return balanced_loss_accum/step, acc_accum/step
 
 def pretrain_aminer(parser):
-    from src.aminer import Aminer
+    from dataset.aminer import Aminer
     from src.layers import StackedGCNDBLP
 
     group = parser.add_argument_group('aminer parameters')
@@ -223,7 +223,7 @@ def pretrain_meetup(parser):
 def pretrain_amazon(parser):
     print("Amazon")
     from src.layers import StackedGCNAmazon
-    from src.amazon import AmazonCommunity    
+    from dataset.amazon import AmazonCommunity    
     group = parser.add_argument_group('amazon parameters')
     group.add_argument('--user-dim', type=int, default=16)
     group.add_argument('--cat-dim', type=int, default=8)

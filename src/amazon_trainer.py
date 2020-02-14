@@ -1,6 +1,6 @@
 from datetime import datetime
 from src.layers import StackedGCNAmazon, StackedGCNAmazonV2
-from src.amazon import AmazonCommunity
+from dataset.amazon import AmazonCommunity
 from torch_geometric.data import DataLoader
 import random
 import shutil

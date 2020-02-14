@@ -1,6 +1,6 @@
 from datetime import datetime
 from src.layers import StackedGCNDBLP
-from src.aminer import Aminer
+from dataset.aminer import Aminer
 from torch_geometric.data import DataLoader
 import random
 from tqdm import tqdm
