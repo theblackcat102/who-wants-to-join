@@ -1,3 +1,28 @@
+# Prepare dataset
+
+
+Amazon  : src/amazon.py
+    
+    1. bash download.sh
+
+    2. cd data/amazon : unzip tgz files under amazon
+
+
+Meetup NY/SF : src/meetup.py
+
+    1. mkdir meetup_v2 under project root
+    2. download meetup csv from here [https://www.kaggle.com/sirpunch/meetups-data-from-meetupcom](https://www.kaggle.com/sirpunch/meetups-data-from-meetupcom)
+    3. Run ``` python -m src.meetup_trainer --dataset NY ```
+
+
+ Aminer  : src/aminer.py
+
+    1. mkdir aminer under project root
+    2. download citation network v1 from here [https://www.aminer.cn/citation](https://www.aminer.cn/citation)
+    3. unzip zip and rename the txt file as dblp.txt
+    4. Run ``` python -m src.aminer_trainer ```
+
+
 # Notes
 
 
@@ -36,12 +61,15 @@ deepwalk --workers 8  --input lj/com-lj.ungraph.txt --output lj/lj.rand.embeddin
 deepwalk --workers 8  --input youtube/com-youtube.ungraph.txt --output youtube/youtube.rand.embeddings --walk-length 20 --window-size 10
 
 
+python baseline.py --dataset amazon
+python baseline.py --dataset dblp
+python baseline.py --dataset youtube
+
 # Train
 
 ### Siamese Network
 
 python -m baseline.train_sia --dataset dblp --task socnet --neg-ratio 5
-
 
 ### Seq2Seq
 
@@ -54,6 +82,15 @@ python -m baseline.deepset3 --dataset dblp --task socnet
 ### Nearest Neighbour
 
 python -m baseline.cluster
+
+### GCN
+
+python -m src.trainer
+
+
+# Tensorboard
+
+tensorboard --logdir=logs
 
 
 # Notes
@@ -106,3 +143,101 @@ Bug may lies in : Trainer section /  Dataset / Evaluation method
 
 [ ] check F1 evaluation method ( pair review with james ) 
 
+
+
+Facebook link:
+
+https://monova.org/165bd18d9c34582509fd252ac45e930c9ebc9e8f
+
+https://archive.org/details/oxford-2005-facebook-matrix
+
+100 group as university
+
+Node attribute:
+
+1. Student faction
+2. Gender
+3. Major
+4. Second Major
+5. Dorm
+6. Year
+7. High school
+
+Not sure what is this
+
+http://law.di.unimi.it/webdata/fb-current/
+
+
+Flickr:
+
+1. http://socialcomputing.asu.edu/datasets/Flickr
+
+
+Number of users : 80,513
+Number of friendship pairs: 5,899,882
+Number of groups: 195
+
+2. http://socialnetworks.mpi-sws.org/data-imc2007.html
+
+
+Github
+
+Task : predict which member to add to project
+
+follow, star, commit
+
+
+https://www.gharchive.org/
+
+
+~~MovieLens:~~
+
+Data expansion using omdb api ( mainly extract more actors and movie plot text)
+
+After expansion 7598/11615 actors only participate in one movie
+
+
+Movie:
+    1. language
+    2. Director
+    4. Writer
+    5. country
+    3. Production company
+    4. Budget
+
+
+gcn/amazon_hete_2020-01-28-11-12-59
+
+    * All SAGEConv layers
+
+
+gcn/amazon_hete_2020-01-28-11-16-52
+
+    * GAT layers with last is GCN
+
+
+gcn/amazon_hete_2020-01-28-12-14-34
+
+    * with node classification
+
+gcn/amazon_hete_2020-01-28-12-20-42
+gcn/amazon_hete_2020-01-28-12-35-02
+
+    * remove member prediction only on target node
+
+
+https://www.kernix.com/article/community-detection-in-social-networks/
+
+```
+def calculFScore(i,j):
+    i=[int(x) for x in i]
+    j=[int(x) for x in j]
+    inter=set(i).intersection(set(j))
+    precision=len(inter)/float(len(j))
+    recall=len(inter)/float(len(i))
+    if recall==0 and precision==0:
+        fscore=0
+    else:
+        fscore=2*(precision*recall)/(precision+recall)
+    return fscore
+```

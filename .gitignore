@@ -4,15 +4,38 @@ __pycache__/
 *$py.class
 *.rar
 *.zip
+*.sh
+*.pkl
 # C extensions
 env/
 *.so
+random-modular-network-generator/
+trash/
+meetup/
+data/
+movielens/
+ml-latest-small/
 lightning_logs/
 Meetup_data/
 meetup_v1
 meetup_v2
+amazon/
+dblp/
+lj/
+IDRN/
+test/
+youtube/
+node2vec/
+old_log/
+failed/
+processed/
+generate/
+graphv/
+aminer/
+friendster/
 Attentive-Group*/
 .cache/
+orkut/
 # Distribution / packaging
 .Python
 build/
@@ -134,3 +157,13 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+
+# Vscode
+.vscode
+
+# tensorboard
+logs
+tmp_writer
+
+# backup
+backup
