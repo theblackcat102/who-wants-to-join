@@ -17,7 +17,7 @@ from src.utils import dict2table, confusion, str2bool
 
 class GroupGCN():
     def __init__(self, args):
-        dataset = Aminer(cutoff=args.maxhop,
+        dataset = Aminer(train=True,cutoff=args.maxhop,
             min_size=args.min_size, max_size=args.max_size,
             baseline=args.baseline)
 
@@ -36,18 +36,14 @@ class GroupGCN():
                 pickle.dump(shuffle_idx, f)
 
         dataset = dataset[shuffle_idx]
-
-        split_pos = int(len(dataset)*0.7)
-        train_idx = shuffle_idx[:split_pos]
-        valid_idx_ = shuffle_idx[split_pos:]
-        # 7: 1: 2 ; train : valid : test
-        valid_pos = int(len(valid_idx_)*0.3333)
-        valid_idx = valid_idx_[:valid_pos]
-        test_idx = valid_idx_[valid_pos:]
-
+        split_index = int(len(shuffle_idx)*0.9)
+        train_idx = shuffle_idx[:split_index]
+        valid_idx = shuffle_idx[split_index:]
         self.train_dataset = dataset[train_idx]
-        self.test_dataset = dataset[test_idx]
         self.valid_dataset = dataset[valid_idx]
+        self.test_dataset = Aminer(train=False,cutoff=args.maxhop,
+            min_size=args.min_size, max_size=args.max_size,
+            baseline=args.baseline)
 
         self.args = args
 
