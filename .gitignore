@@ -9,6 +9,7 @@ __pycache__/
 # C extensions
 env/
 *.so
+*.json
 random-modular-network-generator/
 trash/
 meetup/

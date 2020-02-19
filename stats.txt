@@ -1,38 +1,38 @@
 {
     "AmazonCommunity": {
         "dataset": "AmazonCommunity",
-        "num_nodes": 20446741,
-        "num_edges": 227916430,
-        "num_groups": 38517,
-        "num_member_nodes": 4852703,
-        "avg_degree": 11.146834109161944,
-        "avg_group_size": 125.98860243528831
+        "num_nodes": 20324448,
+        "num_edges": 226508356,
+        "num_groups": 38516,
+        "num_member_nodes": 4828623,
+        "avg_degree": 11.144625231642207,
+        "avg_group_size": 125.3666787828435
     },
     "Meetup_94101": {
         "dataset": "Meetup_94101",
-        "num_nodes": 47049134,
-        "num_edges": 733309819,
+        "num_nodes": 7877466,
+        "num_edges": 729742562,
         "num_groups": 765,
-        "num_member_nodes": 7481246,
-        "avg_degree": 15.586042858939763,
-        "avg_group_size": 9779.406535947712
+        "num_member_nodes": 7446558,
+        "avg_degree": 92.63671363354662,
+        "avg_group_size": 9734.06274509804
     },
     "Meetup_10001": {
         "dataset": "Meetup_10001",
-        "num_nodes": 117112822,
-        "num_edges": 1824614165,
-        "num_groups": 1241,
-        "num_member_nodes": 18628576,
-        "avg_degree": 15.579969245382884,
-        "avg_group_size": 15010.939564867043
+        "num_nodes": 21553576,
+        "num_edges": 2039493083,
+        "num_groups": 1318,
+        "num_member_nodes": 20605826,
+        "avg_degree": 94.62434832159637,
+        "avg_group_size": 15634.162367223065
     },
     "Aminer": {
         "dataset": "Aminer",
-        "num_nodes": 765257,
-        "num_edges": 1694822,
-        "num_groups": 7297,
-        "num_member_nodes": 530552,
-        "avg_degree": 2.214709568158148,
-        "avg_group_size": 72.70823626147732
+        "num_nodes": 844924,
+        "num_edges": 4471594,
+        "num_groups": 5193,
+        "num_member_nodes": 557225,
+        "avg_degree": 5.292303213070051,
+        "avg_group_size": 107.30310032736377
     }
 }

@@ -22,26 +22,16 @@ import random
 """
 class RankingTrainer():
 
-    def __init__(self, name, model, dataset, shuffle_idx, 
+    def __init__(self, name, model, train_dataset, test_dataset, valid_dataset, 
         user_size, batch_size=64, top_k=5, args=None):
         self.name = name
         self.model = model
         self.user_size = user_size
         self.top_k = top_k
 
-        dataset = dataset[shuffle_idx]
-
-        split_pos = int(len(dataset)*0.7)
-        train_idx = shuffle_idx[:split_pos]
-        valid_idx_ = shuffle_idx[split_pos:]
-        # 7: 1: 2 ; train : valid : test
-        valid_pos = int(len(valid_idx_)*0.3333)
-        valid_idx = valid_idx_[:valid_pos]
-        test_idx = valid_idx_[valid_pos:]
-
-        self.train_dataset = dataset[train_idx]
-        self.test_dataset = dataset[test_idx]
-        self.valid_dataset = dataset[valid_idx]
+        self.train_dataset = train_dataset
+        self.test_dataset = test_dataset
+        self.valid_dataset = valid_dataset
         self.log_path = osp.join(
             "logs", "baseline",
             self.name+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
@@ -263,6 +253,8 @@ def evaluate_dblp(parser):
     group.add_argument('--dropout', type=float, default=0.1)
     group.add_argument('--layers', nargs='+', type=int, default=[32, 32])
     args = parser.parse_args()
+
+    dataset = Aminer(train=True)
     if osp.exists('dblp_hete_shuffle_idx.pkl'):
         with open('dblp_hete_shuffle_idx.pkl', 'rb') as f:
             shuffle_idx = pickle.load(f)
@@ -291,7 +283,15 @@ def evaluate_dblp(parser):
         weight = torch.load(args.weights)
         model.load_state_dict(weight)
 
-    dataset = Aminer()
+
+    dataset = dataset[shuffle_idx]
+    split_index = int(len(shuffle_idx)*0.9)
+    train_idx = shuffle_idx[:split_index]
+    valid_idx = shuffle_idx[split_index:]
+    train_dataset = dataset[train_idx]
+    valid_dataset = dataset[valid_idx]
+    test_dataset = Aminer(train=False)
+
     values = {
             'f1': [],
             'recall': [],
@@ -299,7 +299,7 @@ def evaluate_dblp(parser):
             'loss': []
         }
     for i in range(args.repeat_n):
-        trainer = RankingTrainer('aminer',model, dataset, shuffle_idx, 
+        trainer = RankingTrainer('aminer',model, train_dataset, test_dataset, valid_dataset,
             user_size=874608, top_k=args.top_k, args=args)
         f1, recalls, precisions, loss = trainer.train(epochs=args.epochs, batch_size=args.batch_size)
         values['f1'].append(f1)
@@ -349,6 +349,21 @@ def evaluate_meetup(parser):
     if osp.exists(args.city+'_shuffle_idx.pkl'):
         with open(args.city+'_shuffle_idx.pkl', 'rb') as f:
             shuffle_idx = pickle.load(f)
+    dataset = dataset[shuffle_idx]
+
+    split_pos = int(len(dataset)*0.7)
+    train_idx = shuffle_idx[:split_pos]
+    valid_idx_ = shuffle_idx[split_pos:]
+    # 7: 1: 2 ; train : valid : test
+    valid_pos = int(len(valid_idx_)*0.3333)
+    valid_idx = valid_idx_[:valid_pos]
+    test_idx = valid_idx_[valid_pos:]
+
+    train_dataset = dataset[train_idx]
+    test_dataset = dataset[test_idx]
+    valid_dataset = dataset[valid_idx]
+
+
     model = StackedGCNMeetup(user_size=len(dataset.user2id),
                                  category_size=category_size,
                                  topic_size=topic_size,
@@ -370,7 +385,7 @@ def evaluate_meetup(parser):
         }
     for i in range(args.repeat_n):
 
-        trainer = RankingTrainer('meetup_'+str(args.city)+'_', model, dataset, shuffle_idx, 
+        trainer = RankingTrainer('meetup_'+str(args.city)+'_', model, train_dataset, test_dataset, valid_dataset, 
             user_size=len(dataset.user2id), top_k=args.top_k, args=args)
         f1, recalls, precisions, loss = trainer.train(epochs=args.epochs, batch_size=args.batch_size)
         values['f1'].append(f1)
@@ -415,6 +430,20 @@ def evaluate_amazon(parser):
 
     with open('amazon_hete_shuffle_idx.pkl', 'rb') as f:
         shuffle_idx = pickle.load(f)
+    dataset = dataset[shuffle_idx]
+
+    split_pos = int(len(dataset)*0.7)
+    train_idx = shuffle_idx[:split_pos]
+    valid_idx_ = shuffle_idx[split_pos:]
+    # 7: 1: 2 ; train : valid : test
+    valid_pos = int(len(valid_idx_)*0.3333)
+    valid_idx = valid_idx_[:valid_pos]
+    test_idx = valid_idx_[valid_pos:]
+
+    train_dataset = dataset[train_idx]
+    test_dataset = dataset[test_idx]
+    valid_dataset = dataset[valid_idx]
+
     model = StackedGCNAmazon(len(dataset.user2id),
                                  category_size=category_size,
                                  user_dim=args.user_dim,
@@ -435,7 +464,7 @@ def evaluate_amazon(parser):
             'loss': []
         }
     for i in range(args.repeat_n):
-        trainer = RankingTrainer('amazon_', model, dataset, shuffle_idx, 
+        trainer = RankingTrainer('amazon_', model, train_dataset, test_dataset, valid_dataset, 
             user_size=len(dataset.user2id), top_k=args.top_k, args=args)
         f1, recalls, precisions, loss = trainer.train(epochs=args.epochs, batch_size=args.batch_size)
         values['f1'].append(f1)
