@@ -1,12 +1,14 @@
 import torch
 import torch.nn as nn
-
+import random
 import numpy as np
 import torch.nn as nn
 import torch.nn.functional as F
 from src.gcn import StackedGCNDBLP
-
+from tqdm import tqdm
 from torch.nn import TransformerEncoder, TransformerEncoderLayer, TransformerDecoderLayer, TransformerDecoder
+from src.utils import dict2table, confusion, str2bool, calculate_f_score
+
 PAD_ID = 874608
 BOS_ID = PAD_ID+1
 EOS_ID = PAD_ID+2
@@ -137,7 +139,9 @@ class ScaledDotProductAttention(nn.Module):
 
 
 class SAN(nn.Module):
-
+    '''
+    Batch first self attention
+    '''
     def __init__(self, input_dim, head_dim=16, dropout=0.1,
             output_query=False):
         super().__init__()
@@ -163,6 +167,25 @@ class SAN(nn.Module):
             src2 = self.self_attn(src, src, src, mask=src_mask)[0]
             src = self.norm1(src2)
             return src
+
+
+class SANS(nn.Module):
+    '''
+    Batch first self attention
+    '''
+    def __init__(self, layers):
+        super().__init__()
+        self.layers = layers
+
+    def forward(self, src, src_mask=None):
+        for layer in self.layers:
+            src = layer(src, src_mask=src_mask)
+        return src
+    
+    def to(self, device):
+        for idx, layer in enumerate(self.layers):
+            self.layers[idx] = layer.to(device)
+        return self
 
 
 def sequence_pad(embeddings, data, pad_vector=None):
@@ -250,36 +273,37 @@ class HINT(nn.Module):
         self.special_token = nn.Embedding(3, san_dim)
         self.d_model = san_dim
 
-        encoder_layer = TransformerEncoderLayer(san_dim, 1, san_head_dim, 0.1)
-        encoder_norm = nn.LayerNorm(san_dim)
-        self.encoder = TransformerEncoder(encoder_layer, 2, encoder_norm)
+        # encoder_layer = TransformerEncoderLayer(san_dim, 1, san_head_dim, 0.1)
+        # encoder_norm = nn.LayerNorm(san_dim)
+        # self.encoder = TransformerEncoder(encoder_layer, 2, encoder_norm)
 
-        decoder_layer = TransformerDecoderLayer(san_dim, 1, san_head_dim, 0.1)
-        decoder_norm = nn.LayerNorm(san_dim)
-        self.decoder = TransformerDecoder(decoder_layer, 2, decoder_norm)
-        self.decoder_embeddings = nn.Sequential(self.gcn.embeddings,
-            nn.Linear(user_dim, san_dim))
+        # decoder_layer = TransformerDecoderLayer(san_dim, 1, san_head_dim, 0.1)
+        # decoder_norm = nn.LayerNorm(san_dim)
+        # self.decoder = TransformerDecoder(decoder_layer, 2, decoder_norm)
+        # self.decoder_embeddings = nn.Sequential(self.gcn.embeddings,
+        #     nn.Linear(user_dim, san_dim))
 
-        # self.stacked_encoder = nn.Sequential(
-        #     # SAN(san_dim, dropout=dropout),
-        #     SAN(san_dim, dropout=dropout, output_query=True),
+        # self.encoder = nn.Sequential(
+        #     SAN(san_dim, dropout=dropout),
+        #     SAN(san_dim, dropout=dropout, output_query=False),
         # )
-
-        # self.stacked_decoder = nn.Sequential(
-        #     # SAN(san_dim, dropout=dropout),
-        #     SAN(san_dim, dropout=dropout, output_query=True),
-        # )
+        self.encoder = SAN(san_dim)
+        self.encoder2 = SAN(san_dim)
+        # self.encoder = SANS([
+        #     SAN(san_dim, dropout=dropout),
+        #     SAN(san_dim, dropout=dropout, output_query=False),
+        # ])
         self.use_attn = use_attn
         output_dim = san_dim
         if self.use_attn:
             self.attn = LuongAttention(san_dim, san_dim)
             output_dim = san_dim*2
 
-        self.linear = nn.Sequential(
-            nn.LayerNorm(output_dim),
-            nn.LeakyReLU(),
-            nn.Linear(output_dim, author_size+3) # include pad
-        )
+        # self.linear = nn.Sequential(
+        #     nn.LayerNorm(output_dim),
+        #     nn.LeakyReLU(),
+        #     nn.Linear(output_dim, author_size+3) # include pad
+        # )
         self.node_class = nn.Sequential(
             nn.LeakyReLU(),
             nn.Linear(san_dim, 3)
@@ -294,41 +318,49 @@ class HINT(nn.Module):
         x, edge_index = data.x, data.edge_index
         _, _, embeddings = self.gcn(edge_index.cuda(), x.cuda())
 
-
-        feature = embeddings#[ data.y == 1 ]
+        feature = embeddings  # [ data.y == 1 ]
         feature = feature.reshape(len(data.titleid), data.length, -1 )
         # the last token should replace as EOS, but not sure how to execute this elegantly
         feature = feature[ :, :data.known.max()+1, : ]
 
-        target = output2seq(data, PAD_ID, max_len=feature.shape[1]-1).cuda()
-        bos_idx = torch.zeros( target.size(0), 1 ) + PAD_ID+1
-        bos_idx = bos_idx.long().cuda()
-        target = torch.cat([bos_idx, target], dim=1)
-        target = self.decoder_embeddings(target)
-
+        # target = output2seq(data, PAD_ID, max_len=feature.shape[1]-1).cuda()
+        # bos_idx = torch.zeros( target.size(0), 1 ) + PAD_ID+1
+        # bos_idx = bos_idx.long().cuda()
+        # target = torch.cat([bos_idx, target], dim=1)
+        # target = self.decoder_embeddings(target)
         # src2, attn, q, k, v = self.stacked_encoder(feature)
         # src, _, q_, k_, v_ = self.stacked_decoder(src2)
         # sz_b, len_q, len_k, len_v = q.size(0), q.size(2), k.size(1), v.size(1)
         # out, attn = self.attn(q_, k, v)
         # out = out.contiguous().view(sz_b, len_q, -1)
 
-        feature = feature.transpose(1, 0)
-        target = target.transpose(1, 0)
+        # feature = feature.transpose(1, 0)
+        # feature = sequence_pad(embeddings, data)
+        # print(feature.shape)
+        # target = target.transpose(1, 0)
 
-        if feature.size(1) != target.size(1):
-            raise RuntimeError("the batch number of src and tgt must be equal")
+        # if feature.size(1) != target.size(1):
+        #     raise RuntimeError("the batch number of src and tgt must be equal")
 
-        if feature.size(2) != self.d_model or target.size(2) != self.d_model:
-            raise RuntimeError("the feature number of src and tgt must be equal to d_model")
+        # if feature.size(2) != self.d_model or target.size(2) != self.d_model:
+        #     raise RuntimeError("the feature number of src and tgt must be equal to d_model")
+        if isinstance(self.encoder, SAN ): # use SAN
+            output = self.encoder(feature, src_mask=src_mask)
+            output = self.encoder2(output, src_mask=src_mask) + output
+        else:
+            output = self.encoder(feature, mask=src_mask, 
+                src_key_padding_mask=src_key_padding_mask)
 
-        memory = self.encoder(feature, mask=src_mask, src_key_padding_mask=src_key_padding_mask)
-        tgt_mask = self.generate_square_subsequent_mask(target.size(0)).cuda()
-        output = self.decoder(target, memory, tgt_mask=tgt_mask, memory_mask=memory_mask,
-                              tgt_key_padding_mask=tgt_key_padding_mask,
-                              memory_key_padding_mask=memory_key_padding_mask)
-        if self.use_attn:
-            output, attn = self.attn(memory, output)
-        return self.linear(output), self.node_class(embeddings)
+        # tgt_mask = self.generate_square_subsequent_mask(target.size(0)).cuda()
+        # output = self.decoder(target, memory, tgt_mask=tgt_mask, memory_mask=memory_mask,
+        #                       tgt_key_padding_mask=tgt_key_padding_mask,
+        #                       memory_key_padding_mask=memory_key_padding_mask)
+        # if self.use_attn:
+        #     output, attn = self.attn(memory, output)
+        # print(output.shape)
+
+        # return the first time step for now
+        return output[:, [0], :], self.node_class(embeddings), embeddings
 
     def generate_square_subsequent_mask(self, sz):
         r"""Generate a square mask for the sequence. The masked positions are filled with float('-inf').
@@ -338,55 +370,182 @@ class HINT(nn.Module):
         mask = mask.float().masked_fill(mask == 0, float('-inf')).masked_fill(mask == 1, float(0.0))
         return mask
 
-    def inference(self, data):
+    def inference(self, data, top_k=1, user_size=874608):
         # greedy decoding
+        B = torch.max(data.batch)+1
         x, edge_index = data.x, data.edge_index
+        latent, _, gcn_embeddings = self.forward(data)
         _, _, embeddings = self.gcn(edge_index.cuda(), x.cuda())
-        feature = embeddings  #[ data.y == 1 ]
-        feature = feature.reshape(len(data.titleid), data.length, -1)
-        max_length = data.known.max()+1
-        feature = feature[:, :data.known.max()+1, :]
-        feature = feature.transpose(1, 0)
-        memory = self.encoder(feature)
-        bos_idx = torch.zeros(1, memory.size(1)) + PAD_ID + 1
-        targets = bos_idx.long().cuda()
+        y_pred = torch.FloatTensor(B, user_size)
+        y_pred.zero_()
+
+        # feature = embeddings  #[ data.y == 1 ]
+
+
+        # use this for discrete sample from geometric dataloader
+        # feature = sequence_pad(embeddings, data)
+
+        # max_length = data.known.max()+1
+        # feature = feature[:, :data.known.max()+1, :]
+        # feature = feature.transpose(1, 0)
+        # memory = self.encoder(feature)
+        # bos_idx = torch.zeros(1, memory.size(1)) + PAD_ID + 1
+        # targets = bos_idx.long().cuda()
         pred_seq = []
 
-        label_mask_id = obtain_loss_mask(data.x[ :, 0 ],
-                        data.label_mask,
-                        PAD_ID,
-                        data.batch )
-        label_mask_id = label_mask_id.unsqueeze(0).cuda()
+        for batch_idx in range(B):
+            paper_idx = (data.batch == batch_idx)
 
-        for idx in range(max_length):
-            target = self.decoder_embeddings(targets)
-            decoder_output = self.decoder(target, memory)
-            if self.use_attn:
-                output, attn = self.attn(memory, decoder_output)
-            else:
-                output = decoder_output
-            memory = torch.cat([memory, decoder_output], dim=0)
-            output = self.linear(output)
-            pred = masked_softmax(output, label_mask_id)
-            output_idx = pred.argmax(2)
+            author_node_idx = (x[:, -1] == 0) & paper_idx
+            # known_author_idx = author_node_idx & (x[:, 1 ] == 1)
 
-            targets = output_idx
-            pred_seq.append(output_idx)
+            # find author node and not known 
+            target_embed = gcn_embeddings[ author_node_idx & (x[:, 1 ] == 0) ]
+            author_latent = latent[ batch_idx, :, :]
+            x_id = x[ author_node_idx & (x[:, 1 ] == 0), 0 ]
+            # latent = candidate_embed.sum(0)
+            if len(target_embed) == 0:
+                continue
+            rank = torch.sigmoid(torch.mm(author_latent, target_embed.T)).flatten()
 
-        pred_seq = torch.cat(pred_seq, dim=0)
-        return pred_seq.transpose(1, 0) # convert to batch first
+            best_idx = torch.argsort(rank, descending=True)
+            # true_id = x[ (y==1) & paper_idx, 0 ]
+            # y_target[batch_idx, true_id ] = 1
+            # print(best_idx[:top_k], x_id[best_idx[:top_k]], true_id )
+            y_pred[ batch_idx, x_id[best_idx[:top_k]] ] = 1
+
+        return y_pred
+
+
+def evaluate( dataloader, model, batch_size=8, top_k=5, user_size=874608):
+    model.eval()
+    recalls = []
+    precisions = []
+    R, P = [], []
+    B = batch_size
+    val_loss = 0
+    with torch.no_grad():
+        for data in tqdm(dataloader, dynamic_ncols=True):
+            output, label_pred, gcn_embeddings = model(data)
+            val_loss += calculate_loss(gcn_embeddings, output, data, B)
+
+            outputs = output.cpu()
+            y_pred = model.inference(data,
+                user_size=user_size, top_k=top_k)
+
+            B = torch.max(data.batch)+1
+            y_target = torch.FloatTensor(B, user_size)
+            y_target.zero_()
+            for batch_idx in range(B):
+                paper_idx = (data.batch == batch_idx)
+                user_id = data.x[ (data.y==1) & paper_idx, 0 ]
+                y_target[batch_idx, user_id] = 1
+
+                _, r, p = calculate_f_score((y_pred[batch_idx, :] == 1).nonzero(), user_id)
+                R.append(r)
+                P.append(p)
+
+            # print(y_pred.sum(), y_target.sum())
+
+            TP, FP, TN, FN = confusion(y_pred, y_target)
+            recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
+            precision = 0 if (TP+FP) < 1e-5 else TP/(TP+FP)
+            # print(precision, recall)
+            precisions.append(precision)
+            recalls.append(recall)
+
+    avg_recalls = np.mean(recalls)
+    avg_precisions = np.mean(precisions)
+    f1 = 2*(avg_recalls*avg_precisions)/(avg_recalls+avg_precisions)
+
+    avg_R, avg_P = np.mean(R), np.mean(P)
+    F = 2*(avg_R*avg_P)/(avg_R+avg_P)
+    print(F, f1)
+
+    model.train()
+    return f1, avg_recalls, avg_precisions, val_loss/len(dataloader)
+
+
+def calculate_loss( gcn_outputs, author_embed, batch, batch_size, margin=5):
+    # calculate triple ranking loss
+    total_neg = 0
+    total_pos = 0
+    log_sigmoid = nn.LogSigmoid()
+    # iterate through all datasets
+    batch_size = torch.max(batch.batch)+1
+    for batch_idx in range(batch_size):
+        paper_idx = (batch.batch == batch_idx)
+        # author node in this data
+
+        # candidate_embed = author_embed[batch_idx]
+        # latent = candidate_embed.sum(0)
+        latent = author_embed[batch_idx, :, :]
+        # print(latent.shape)
+        target_embed = gcn_outputs[ (batch.y==1) & paper_idx]
+        shuffle_idx = list(range(len(target_embed)))
+        random.shuffle(shuffle_idx)
+        target_embed = target_embed[shuffle_idx]
+
+        pos = log_sigmoid(torch.mm(latent, target_embed.T).flatten())
+
+        # pos = torch.mm(latent.unsqueeze(-1).T, target_embed.T).flatten()
+        total_pos += pos.sum()
+        # not label not known users and node type = user
+        negative_node_idx = (batch.y == 0) & (batch.x[:, 1 ] == 0) & (batch.x[:, 2] == 0) & paper_idx
+        negative_embed = gcn_outputs[negative_node_idx]
+        if len(negative_embed) == 0:
+            # print('no negative found!')
+            continue
+
+        shuffle_idx = list(range(len(negative_embed)))
+        random.shuffle(shuffle_idx)
+        shuffle_idx = shuffle_idx[:len(target_embed)]
+
+        negative_embed = negative_embed[shuffle_idx]
+
+        # torch.dot(target_embed[0],  latent)
+        loss = (margin-torch.mm(latent, negative_embed.T).flatten()).clamp(min=0)
+        neg = log_sigmoid(loss)
+        total_neg += neg.sum()
+
+    loss = (total_pos+total_neg) / (batch_size*2)
+    # loss = total_neg/(N*2)#log_sigmoid(total_pos + total_neg)/ (batch_size*2)
+    return -loss
 
 if __name__ == "__main__":
     from torch_geometric.data import DataLoader
-    from src.aminer import Aminer,PaddedDataLoader
+    from src.aminer import Aminer, PaddedDataLoader
     from src.gcn import StackedGCNDBLP
+    import os.path as osp
+    import pickle
+
     dataset = Aminer()
+    val_data = Aminer()
     model = HINT(
-        paper_dim=6,
+        paper_dim=8,
         layers=[16, 16],
     ).cuda()
+    if osp.exists('dblp_hete_shuffle_idx.pkl'):
+        with open('dblp_hete_shuffle_idx.pkl', 'rb') as f:
+            shuffle_idx = pickle.load(f)
+    else:
+        shuffle_idx = [idx for idx in range(len(dataset))]
+        split_pos = int(len(dataset)*0.7)
+        train_idx = shuffle_idx[:split_pos]
+        random.shuffle(train_idx)
+        shuffle_idx[:split_pos] = train_idx
+        print(shuffle_idx[split_pos: split_pos+10])
+        with open('dblp_hete_shuffle_idx.pkl', 'wb') as f:
+            pickle.dump(shuffle_idx, f)
+
+    split_pos = int(len(dataset)*0.7)
+    train_idx = shuffle_idx[:split_pos]
+    valid_idx_ = shuffle_idx[split_pos:]
+    batch_size = 32
     optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-    loader = PaddedDataLoader(dataset, batch_size=8, shuffle=True, num_workers=4)
+    loader = PaddedDataLoader(dataset[train_idx], batch_size=batch_size, shuffle=True, num_workers=4)
+    val_loader = PaddedDataLoader(dataset[valid_idx_], batch_size=batch_size, shuffle=False, num_workers=4)
+
     criterion = nn.CrossEntropyLoss(ignore_index=PAD_ID)
 
     for epoch in range(50):
@@ -398,24 +557,34 @@ if __name__ == "__main__":
                 data.batch )
             x, edge_index = data.x, data.edge_index
             x = x.cuda()
-            output, label_pred = model(data)
+            output, label_pred, gcn_embeddings = model(data)
 
-            output = output.transpose(1, 0)
+            # output = output.transpose(1, 0) # batch_size x 1 x 16
 
             label_mask_id = label_mask_id.unsqueeze(1)
             label_mask_id = label_mask_id.repeat(1, output.shape[1], 1).cuda()
-            target = output2seq(data, PAD_ID, max_len=output.shape[1]).cuda()
+            # target = output2seq(data, PAD_ID, max_len=output.shape[1]).cuda()
 
+            # print(target.shape)
             # pred = masked_softmax(output, label_mask_id)
             pred = output
             node_loss = criterion(label_pred, x[:, -1])
 
-            pred_loss = criterion(pred.reshape(-1, PAD_ID+3), target.flatten()) / pred.shape[1]
-            loss =  5*pred_loss + node_loss
+            rank_loss = calculate_loss(gcn_embeddings, output, data, batch_size)
+
+            # pred_loss = criterion(pred.reshape(-1, PAD_ID+3), target.flatten()) / pred.shape[1]
+            loss =  rank_loss + node_loss
             # loss = node_loss
             optimizer.zero_grad()
 
             loss.backward()
 
             optimizer.step()
-            print(loss.item(), pred_loss.item(), node_loss.item())
+            if i % 100 == 0:
+                print(i, loss.item(), rank_loss.item(), node_loss.item())
+            if i % 500 == 0:
+                model.eval()
+                with torch.no_grad():
+                    evaluate(val_loader, model, user_size=PAD_ID+1, batch_size=batch_size)
+                model.train()
+        # break

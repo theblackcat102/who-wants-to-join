@@ -74,7 +74,7 @@ class RankingTrainer():
             shuffle_idx = list(range(len(target_embed)))
             random.shuffle(shuffle_idx)
             target_embed = target_embed[shuffle_idx]
-
+            print(latent.shape, latent.unsqueeze(-1).shape)
             pos = log_sigmoid(torch.mm(latent.unsqueeze(-1).T, target_embed.T).flatten())
 
             # pos = torch.mm(latent.unsqueeze(-1).T, target_embed.T).flatten()
@@ -224,6 +224,7 @@ class RankingTrainer():
                 if epoch % 5 == 0:
                     f1, recalls, precisions, val_loss = self.evaluate(valid_loader, model,
                         user_size=self.user_size)
+
                     self.writer.add_scalar(
                         "Val/loss", val_loss.item(), n_iter)
                     self.writer.add_scalar("Val/F1", f1, n_iter)
@@ -273,7 +274,7 @@ def evaluate_dblp(parser):
     group.add_argument('--paper-dim', type=int, default=16)
     group.add_argument('--conf-dim', type=int, default=8)
     group.add_argument('--input-dim', type=int, default=32)
-    group.add_argument('--output-dim',type=int, default=8)
+    group.add_argument('--output-dim',type=int, default=16)
     group.add_argument('--dropout', type=float, default=0.1)
     group.add_argument('--layers', nargs='+', type=int, default=[32, 32])
     args = parser.parse_args()
