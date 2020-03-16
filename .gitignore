@@ -6,6 +6,12 @@ __pycache__/
 *.zip
 *.sh
 *.pkl
+weights/
+dblp_txt/
+*.json
+SF_txt/
+results/
+*.ipynb
 # C extensions
 env/
 *.so
