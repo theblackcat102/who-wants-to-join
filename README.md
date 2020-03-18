@@ -1,4 +1,51 @@
+# who-wants-to-join?
+
+Introduction to all branches
+
+1. gcn
+
+A brief test on using GCN with classification to find which user to choose for a given known sub group network within the N-hop network. This also contain the updated implementation of GCN + ranking based method.
+
+
+To run ranking method
+```
+    python -m baseline.rank [aminer/meetup/amazon] 
+```
+
+To run classification method
+```
+    python -m src.[aminer_trainer/meetup_trainer/amazon_trainer]
+```
+
+2. gcn_multi
+
+A brief test on using GCN with classification to find which user to choose for a given known sub group network within the N-hop network. The difference from **gcn** is this branch include a node classification loss
+
+To run classification method
+```
+    python -m src.[aminer_trainer/meetup_trainer/amazon_trainer]
+```
+
+
+3. hint
+
+Implement SAN method, only aminer dataset is usable in this repo, as padding is required to convert sparse representation of graph to a sequence representation.
+
+```
+python -m src.aminer_trainer    
+```
+
+Checkout src/hint.py for details of SAN and the complete trainer function. For the dataset padding method, it's implementation is done by PaddedDataLoader in datasets/aminer.py
+
 # Prepare dataset
+
+fetch all submodule
+
+```
+    git submodule update --init --recursive
+```
+
+You can refer to [readme](https://github.com/theblackcat102/who-wants-to-join-dataset/tree/410907d9e925d8c275b9fd245aa4ec935523cda1) inside dataset
 
 
 Amazon  : src/amazon.py
