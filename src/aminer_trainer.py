@@ -14,7 +14,7 @@ import numpy as np
 import torch.nn as nn
 from src.skipgram import generate_batch, SkipGramNeg, data_to_networkx_, sample_walks
 from src.utils import dict2table, confusion, str2bool, TMP_WRITER_PATH, calculate_f_score
-from src.hint import HINT, obtain_loss_mask, output2seq, masked_softmax
+from src.hint import HINT, evaluate
 from src.aminer import PaddedDataLoader
 PAD_ID = 874608
 BOS_ID = PAD_ID+1
@@ -74,58 +74,6 @@ class HINT_Trainer():
         save_path = osp.join(save_path, 'model_{}.pth'.format(save_name))
         torch.save(checkpoint, save_path)
 
-    def evaluate(self, dataloader, model):
-        model.eval()
-        recalls = []
-        precisions = []
-        R, P = [], []
-        B = args.batch_size
-        user_size = 874608
-        print('Validation')
-        with torch.no_grad():
-            for val_data in tqdm(dataloader, dynamic_ncols=True):
-                label_mask_id = obtain_loss_mask(val_data.x[ :, 0 ], 
-                    val_data.label_mask, 
-                    PAD_ID, 
-                    val_data.batch)
-                x, edge_index = val_data.x, val_data.edge_index
-                x = x.cuda()
-                pred = model.inference(val_data)
-                B = val_data.batch.max() + 1
-                target = output2seq(val_data, PAD_ID, max_len=val_data.known.max()+1).cpu()
-                pred = pred.cpu()
-                y_pred = torch.FloatTensor(B, user_size+1)
-                y_target = torch.FloatTensor(B, user_size+1)
-                y_pred.zero_()
-                y_target.zero_()
-
-                for batch_idx in range(B):
-                    f1, precision, recall = calculate_f_score(target[batch_idx].nonzero(),  pred[batch_idx].nonzero() )                    
-                    R.append(recall)
-                    P.append(precision)
-                    y_target[batch_idx, target[batch_idx]] = 1
-                    y_pred[batch_idx, pred[batch_idx] ] = 1
-
-                TP, FP, TN, FN = confusion(y_pred[:, :PAD_ID], y_target[:, :PAD_ID])
-
-                recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
-                precision = 0 if (TP+FP) < 1e-5 else TP/(TP+FP)
-                precisions.append(precision)
-                recalls.append(recall)
-
-
-        avg_recalls = np.mean(recalls)
-        avg_precisions = np.mean(precisions)
-        avg_R = np.mean(R)
-        avg_P = np.mean(P)
-        F1 = 2*(avg_R*avg_P)/(avg_R+avg_P)
-        print(F1)
-
-        f1 = 2*(avg_recalls*avg_precisions)/(avg_recalls+avg_precisions)
-        print(f1)
-        model.train()
-        return f1, avg_recalls, avg_precisions
-
     def train(self, epochs=200):
         from torch.optim.lr_scheduler import ReduceLROnPlateau
 
@@ -177,49 +125,49 @@ class HINT_Trainer():
         scheduler = ReduceLROnPlateau(optimizer, 'max')
         pos_weight = torch.ones([PAD_ID+3])*weight
         self.pos_weight = pos_weight.cuda()
-        pred_criterion = torch.nn.CrossEntropyLoss(weight=self.pos_weight, ignore_index=PAD_ID)
-        node_criterion = torch.nn.CrossEntropyLoss()
+        pos_weight = torch.ones([1])*4
+        pos_weight = pos_weight.cuda()
+
+        binary_criterion = nn.BCEWithLogitsLoss(pos_weight=pos_weight)
+        criterion = nn.CrossEntropyLoss(ignore_index=PAD_ID)
 
         n_iter = 0
         best_f1 = 0
         iter_size = 8
 
         self.writer.add_text('Text', dict2table(vars(args)), 0)
+        model.train()
         with tqdm(total=len(train_loader)*epochs, dynamic_ncols=True) as pbar:
             for epoch in range(epochs):
                 loss_mini_batch = 0
 
                 for i, data in enumerate(train_loader):
-                    optimizer.zero_grad()
-                    label_mask_id = obtain_loss_mask(data.x[ :, 0 ], 
-                        data.label_mask, 
-                        PAD_ID, 
-                        data.batch )
                     x, edge_index = data.x, data.edge_index
                     x = x.cuda()
-                    output, label_pred = model(data)
+                    rank_loss, label_pred, (seq_pred, seq_label) = model.train_batch(data)
 
-                    output = output.transpose(1, 0)
-                    target = output2seq(data, PAD_ID, max_len=output.shape[1]).cuda()
-                    if epoch < 5:
-                        label_mask_id = label_mask_id.unsqueeze(1)
-                        label_mask_id = label_mask_id.repeat(1, output.shape[1], 1).cuda()
-                        
-                        pred = masked_softmax(output, label_mask_id)
-                    else:
-                        pred = output
+                    # print(target.shape)
+                    # pred = output
+                    node_loss = criterion(label_pred, x[:, -1])
+                    seq_loss = binary_criterion(seq_pred.flatten(), seq_label.flatten())
 
-                    node_loss = node_criterion(label_pred, x[:, -1])
-                    pred_loss = pred_criterion(pred.reshape(-1, PAD_ID+3), target.flatten()) / pred.shape[1]
-                    loss = pred_loss + node_loss
+                    loss = (rank_loss + node_loss*5 + seq_loss * 5)
+
+                    optimizer.zero_grad()
+
                     loss.backward()
+
                     optimizer.step()
 
-
                     self.writer.add_scalar(
-                        "Train/MemberLoss", pred_loss.item(), n_iter)
+                        "Train/RankLoss", rank_loss.item(), n_iter)
                     self.writer.add_scalar(
                         "Train/NodeLoss", node_loss.item(), n_iter)
+                    self.writer.add_scalar(
+                        "Train/LengthLoss", seq_loss.item(), n_iter)
+                    self.writer.add_scalar(
+                        "Train/Loss", loss.item(), n_iter)
+
                     pbar.update(1)
                     pbar.set_description(
                         "loss {:.4f}, epoch {}".format(loss.item(), epoch))
@@ -227,8 +175,10 @@ class HINT_Trainer():
 
                 if epoch % args.eval == 0:
                     print('Epoch: ', epoch)
-                    f1, recalls, precisions = self.evaluate(valid_loader,
-                                                            model)
+                    f1, recalls, precisions = evaluate(valid_loader,
+                                                            model, user_size=PAD_ID+1, 
+                                                            batch_size=args.batch_size)
+
                     scheduler.step(f1)
                     self.writer.add_scalar("Valid/F1", f1, n_iter)
                     self.writer.add_scalar("Valid/Recalls", recalls, n_iter)
@@ -254,11 +204,11 @@ class HINT_Trainer():
                         self.save_path,
                         "{}".format(epoch+1)
                     )
-        f1, recalls, precisions = self.evaluate(valid_loader, model)
+        f1, recalls, precisions = evaluate(valid_loader, model, user_size=PAD_ID+1,
+                                                            batch_size=args.batch_size)
         self.writer.add_scalar("Valid/F1", f1, n_iter)
         self.writer.add_scalar("Valid/Recalls", recalls, n_iter)
-        self.writer.add_scalar("Valid/Precisions", precisions,
-                                n_iter)
+        self.writer.add_scalar("Valid/Precisions", precisions, n_iter)
         if f1 > best_f1:
             best_f1 = f1
             best_checkpoint = {
@@ -273,7 +223,8 @@ class HINT_Trainer():
                              self.save_path,
                              "best")
         model.load_state_dict(best_checkpoint["model"])
-        f1, recalls, precisions = self.evaluate(test_loader, model)
+        f1, recalls, precisions = evaluate(test_loader, model, user_size=PAD_ID+1,
+                                                    batch_size=args.batch_size)
         self.writer.add_scalar("Test/F1", f1, n_iter)
         self.writer.add_scalar("Test/Recalls", recalls, n_iter)
         self.writer.add_scalar("Test/Precisions", precisions, n_iter)
@@ -318,7 +269,7 @@ class HINT_Trainer():
                         loss = skip_model(target, context, negative)
 
                         loss.backward()
-                        optimizer.step()
+
                         pbar.set_description(
                             "loss {:.4f}, iter {}".format(loss.item(), total_idx))
                         if self.writer != None:
@@ -356,10 +307,10 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=100)
     parser.add_argument('--baseline', type=str2bool, nargs='?', default=False,
         help='baseline model only takes in previous co-author relationship (no conference, no paper id)')
-    parser.add_argument('--batch-size', type=int, default=8)
-    parser.add_argument('--lr', type=float, default=0.001)
+    parser.add_argument('--batch-size', type=int, default=64)
+    parser.add_argument('--lr', type=float, default=0.0005)
     parser.add_argument('--pos-weight', type=float, default=-1)
-    parser.add_argument('--eval', type=int, default=10)
+    parser.add_argument('--eval', type=int, default=5)
     parser.add_argument('--save', type=int, default=50)
     parser.add_argument('--pretrain', type=str2bool, nargs='?', default=False)
     parser.add_argument('--pretrain-weight', type=str, default='')
