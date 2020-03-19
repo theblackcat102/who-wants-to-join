@@ -453,7 +453,7 @@ def calculate_loss( gcn_outputs, author_embed, batch, batch_size, margin=5):
 
 if __name__ == "__main__":
     from torch_geometric.data import DataLoader
-    from src.aminer import Aminer, PaddedDataLoader
+    from dataset.aminer import Aminer, PaddedDataLoader
     from src.gcn import StackedGCNDBLP
     import os.path as osp
     import pickle

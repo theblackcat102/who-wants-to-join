@@ -15,7 +15,7 @@ import torch.nn as nn
 from src.skipgram import generate_batch, SkipGramNeg, data_to_networkx_, sample_walks
 from src.utils import dict2table, confusion, str2bool, TMP_WRITER_PATH, calculate_f_score
 from src.hint import HINT, evaluate, PAD_ID, BOS_ID, EOS_ID
-from src.aminer import PaddedDataLoader
+from dataset.aminer import PaddedDataLoader
 
 # PAD_ID = 874608
 # BOS_ID = PAD_ID+1

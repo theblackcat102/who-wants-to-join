@@ -1,4 +1,4 @@
-from src.aminer import Aminer
+from dataset.aminer import Aminer
 from torch_geometric.data import DataLoader
 from baseline.models import StackedGCNDBLP
 from datetime import datetime
