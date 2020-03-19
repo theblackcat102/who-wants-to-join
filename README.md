@@ -1,7 +1,11 @@
 # who-wants-to-join?
 
 
+dataset/aminer.py main function to see available attributes 
 
+src/hint.py graph + SAN + ranking method, python -m src.hint for debugging
+
+src/aminer_trainer.py : full training loop with tensorboard
 
 
 # Notes

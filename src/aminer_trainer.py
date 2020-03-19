@@ -14,18 +14,19 @@ import numpy as np
 import torch.nn as nn
 from src.skipgram import generate_batch, SkipGramNeg, data_to_networkx_, sample_walks
 from src.utils import dict2table, confusion, str2bool, TMP_WRITER_PATH, calculate_f_score
-from src.hint import HINT, evaluate
+from src.hint import HINT, evaluate, PAD_ID, BOS_ID, EOS_ID
 from src.aminer import PaddedDataLoader
-PAD_ID = 874608
-BOS_ID = PAD_ID+1
-EOS_ID = PAD_ID+2
+
+# PAD_ID = 874608
+# BOS_ID = PAD_ID+1
+# EOS_ID = PAD_ID+2
 
 class HINT_Trainer():
     def __init__(self, args):
         dataset = Aminer(cutoff=args.maxhop,
             min_size=args.min_size, max_size=args.max_size,
             baseline=args.baseline)
-
+        # initialize index for train/val/test datasets
         # make sure each runs share the same results
         if osp.exists('dblp_hete_shuffle_idx.pkl'):
             with open('dblp_hete_shuffle_idx.pkl', 'rb') as f:
@@ -56,7 +57,7 @@ class HINT_Trainer():
 
 
         self.args = args
-
+        # initialize logging writer
         if args.writer is True:
             self.log_path = osp.join(
                 "logs", "aminer",
@@ -75,6 +76,7 @@ class HINT_Trainer():
         torch.save(checkpoint, save_path)
 
     def train(self, epochs=200):
+        # training loop
         from torch.optim.lr_scheduler import ReduceLROnPlateau
 
         args = self.args
@@ -84,15 +86,18 @@ class HINT_Trainer():
         # assert (len(set(self.valid_dataset.processed_file_idx+self.train_dataset.processed_file_idx))) == (train_size+val_size)
 
         train_loader = PaddedDataLoader(self.train_dataset,
+                                  pad_idx=PAD_ID,
                                   batch_size=args.batch_size,
                                   shuffle=True,
                                   num_workers=6)
         valid_loader = PaddedDataLoader(self.valid_dataset,
+                                  pad_idx=PAD_ID,
                                   batch_size=args.batch_size,
                                   shuffle=False,
                                   num_workers=6)
 
         test_loader = PaddedDataLoader(self.test_dataset,
+                                 pad_idx=PAD_ID,
                                  batch_size=args.batch_size,
                                  shuffle=False,
                                  num_workers=6)
@@ -123,6 +128,7 @@ class HINT_Trainer():
         optimizer = torch.optim.Adam(
             model.parameters(), lr=args.lr, weight_decay=5e-4)
         scheduler = ReduceLROnPlateau(optimizer, 'max')
+        # balance 1 and 0 distribution: 1=add user, 0=don't add this user
         pos_weight = torch.ones([PAD_ID+3])*weight
         self.pos_weight = pos_weight.cuda()
         pos_weight = torch.ones([1])*4

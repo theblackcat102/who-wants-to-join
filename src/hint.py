@@ -265,15 +265,14 @@ class HINT(nn.Module):
 
             pred = self.seq_pred(latent)
             pred_results.append(pred)
-
+            # B x D x 1 : select positive embedding at time t
             target_embed = pos_embeds[ :, idx, : ].unsqueeze(-1)
 
             pos = log_sigmoid(torch.bmm(latent, target_embed))
             total_pos += pos.sum()
 
-            target_embed = neg_embeds[:, idx, :, :]
-            target_embed = target_embed.permute(0, 2, 1) # B x 1 x D
-
+            target_embed = neg_embeds[:, idx, :, :] # B x D x N , N : number of negative sample
+            target_embed = target_embed.permute(0, 2, 1) # B x D x N
             neg = (margin - torch.bmm(latent, target_embed).flatten()) .clamp(min=0)
             neg = log_sigmoid(neg)
             total_neg += neg.sum()
@@ -357,6 +356,7 @@ class HINT(nn.Module):
                 if candidate_id_ < user_size:
                     pred_seq.append(candidate_id[best_idx].unsqueeze(0))
 
+                # add selected embedding to known list
                 known_embeddings = torch.cat([
                     candidate_embeddings[:, best_idx].view(1, 1, input_dim),
                     known_embeddings], dim=1)
@@ -369,14 +369,6 @@ class HINT(nn.Module):
                 pred_seq = torch.cat(pred_seq).flatten()
                 y_pred[batch_idx, pred_seq] = 1.0
 
-        # print(pred_seq)
-        # print(data.x[(data.batch == 0) & (data.y == 1), 0].flatten())
-        # print(y_pred.shape)
-        # print((y_pred[0, :] != 0).nonzero().flatten())
-        # print((y_label[0, :] != 0).nonzero().flatten())
-        # print()
-        # print((y_pred[1, :] != 0).nonzero().flatten())
-        # print((y_label[1, :] != 0).nonzero().flatten())
 
         return y_pred, y_label
 
@@ -493,8 +485,8 @@ if __name__ == "__main__":
     valid_idx_ = shuffle_idx[split_pos:]
     batch_size = 32
     optimizer = torch.optim.Adam(model.parameters(), lr=0.0005)
-    loader = PaddedDataLoader(dataset[train_idx], batch_size=batch_size, shuffle=True, num_workers=4)
-    val_loader = PaddedDataLoader(dataset[valid_idx_], batch_size=batch_size, shuffle=False, num_workers=4)
+    loader = PaddedDataLoader(dataset[train_idx], batch_size=batch_size, shuffle=True, pad_idx=PAD_ID, num_workers=4)
+    val_loader = PaddedDataLoader(dataset[valid_idx_], batch_size=batch_size, shuffle=False, pad_idx=PAD_ID, num_workers=4)
     pos_weight = torch.ones([1])*4
     pos_weight = pos_weight.cuda()
 
