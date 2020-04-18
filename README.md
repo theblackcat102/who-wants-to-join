@@ -1,51 +1,4 @@
-# who-wants-to-join?
-
-Introduction to all branches
-
-1. gcn
-
-A brief test on using GCN with classification to find which user to choose for a given known sub group network within the N-hop network. This also contain the updated implementation of GCN + ranking based method.
-
-
-To run ranking method
-```
-    python -m baseline.rank [aminer/meetup/amazon] 
-```
-
-To run classification method
-```
-    python -m src.[aminer_trainer/meetup_trainer/amazon_trainer]
-```
-
-2. gcn_multi
-
-A brief test on using GCN with classification to find which user to choose for a given known sub group network within the N-hop network. The difference from **gcn** is this branch include a node classification loss
-
-To run classification method
-```
-    python -m src.[aminer_trainer/meetup_trainer/amazon_trainer]
-```
-
-
-3. hint
-
-Implement SAN method, only aminer dataset is usable in this repo, as padding is required to convert sparse representation of graph to a sequence representation.
-
-```
-python -m src.aminer_trainer    
-```
-
-Checkout src/hint.py for details of SAN and the complete trainer function. For the dataset padding method, it's implementation is done by PaddedDataLoader in datasets/aminer.py
-
 # Prepare dataset
-
-fetch all submodule
-
-```
-    git submodule update --init --recursive
-```
-
-You can refer to [readme](https://github.com/theblackcat102/who-wants-to-join-dataset/tree/410907d9e925d8c275b9fd245aa4ec935523cda1) inside dataset
 
 
 Amazon  : src/amazon.py
@@ -287,4 +240,74 @@ def calculFScore(i,j):
     else:
         fscore=2*(precision*recall)/(precision+recall)
     return fscore
+```
+
+# Baseline 
+
+You need to create edge lists of each datasets first and pre-train using [graphvite](https://graphvite.io/docs/latest/introduction.html)
+
+Pretrained [here](https://drive.google.com/drive/folders/1Pd4AdVtQxloQw1K17i1DqcMeckYj_YnS?usp=sharing)
+
+## Deepwalk Avg Similarity
+
+```
+python -m dataset.aminer
+sort aminer_train_edgelist.txt | uniq -u > aminer_dup_train_edgelist.txt
+python -m graphvite_embeddings.test --edge-file aminer_dup_train_edgelist.txt --model DeepWalk 
+```
+
+Aminer
+
+```
+python -m baseline.similarity --dataset aminer --embeddings ./graphvite_embeddings/aminer_dup_train_edgelist.txt-64-DeepWalk.pkl --top-k 5
+python -m baseline.similarity --dataset aminer --embeddings ./graphvite_embeddings/aminer_dup_train_edgelist.txt-64-DeepWalk.pkl --top-k 10
+python -m baseline.similarity --dataset aminer --embeddings ./graphvite_embeddings/aminer_dup_train_edgelist.txt-64-DeepWalk.pkl --top-k 20
+```
+
+
+top 5 0.10709204089265839 0.16486902927580893 0.079301489470981
+
+top 10 0.1197822546323775 0.25359527478171545 0.07840878518844621
+
+top 20 0.12737309692167348 0.33564458140729325 0.07860052769105516
+
+
+### SF Meetup
+```
+conda activate base
+python -m graphvite_embeddings.test --edge-file 94101_dup_train_edgelist.txt --model DeepWalk 
+conda deactivate
+python -m baseline.similarity --dataset meetup --embeddings ./graphvite_embeddings/94101_dup_train_edgelist.txt-64-DeepWalk.pkl --city SF
+```
+
+top 5  0.001243265644426025 0.0007158196134574087 0.004724409448818898
+
+top 10 0.001923967648840275 0.0012079455977093772 0.0047244094488188984
+
+top 20 0.002813184263569264 0.0020029183415010187 0.0047244094488188984
+
+## NY Meetup
+
+
+
+```
+python -m graphvite_embeddings.test --edge-file 94101_dup_train_edgelist.txt --model Deepwalk 
+python -m baseline.similarity --dataset meetup --embeddings ./graphvite_embeddings/10001_dup_train_edgelist.txt-64-LINE.pkl --city NY --top-k 5
+python -m baseline.similarity --dataset meetup --embeddings ./graphvite_embeddings/10001_dup_train_edgelist.txt-64-LINE.pkl --city NY --top-k 10
+python -m baseline.similarity --dataset meetup --embeddings ./graphvite_embeddings/10001_dup_train_edgelist.txt-64-LINE.pkl --city NY --top-k 20
+```
+
+top 5  0.01787767020750293 0.017648179912330853 0.018113207547169816
+
+top 10 0.01735544923908339 0.022927387078330475 0.013962264150943397
+
+top 20 0.01471070344923796 0.02327044025157233 0.010754716981132076
+
+
+## Deepwalk Avg Ranking
+
+Only Aminer dataset for now
+
+```
+python -m baseline.deepwalk_clf
 ```
