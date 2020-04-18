@@ -21,10 +21,10 @@ class DeepwalkClf(torch.nn.Module):
         self.fc = nn.Sequential(
             nn.BatchNorm1d(embed_dim),
             nn.ReLU(),
-            nn.Dropout(0.1),
+            # nn.Dropout(0.1),
             nn.Linear(embed_dim, 128),
             nn.ReLU(),
-            nn.Dropout(0.1),
+            # nn.Dropout(0.1),
             nn.Linear(128, embed_dim)
         )
 
@@ -35,7 +35,7 @@ class DeepwalkClf(torch.nn.Module):
         self.log_sigmoid = nn.LogSigmoid()
         self.embed_dim = embed_dim
 
-    def forward_rank(self, candidates, masked_target, target, margin=1, neg_samples=10):
+    def forward_rank(self, candidates, masked_target, target, margin=1, neg_samples=2):
         x = self.embeddings(candidates)
         x = x.permute(0, 2, 1)
         pooled = self.pool(x)
@@ -173,7 +173,6 @@ class DatasetConvert(torch.utils.data.Dataset):
         y_target = np.zeros(self.user_size)
         y_target[target_node_id] = 1.0
 
-
         mask_node_id = []
         # not known candidate group
         candidate_user_node_id = (data.x[:, 2] == user_node_id) & (data.x[:, 1] != 1)
@@ -199,7 +198,7 @@ if __name__ == "__main__":
     data_size = len(dataset)
     if os.path.exists('.cache/{}_user2idx.pkl'.format(str(dataset))):
         with open('.cache/{}_user2idx.pkl'.format(str(dataset)), 'rb') as f:
-            user2idx, idx2user = pickle.load(f)
+            user2idx, idx2user, _ = pickle.load(f)
     else:
         user2idx, idx2user = reindex_name2id(graphvite_embeddings, dataset)
         with open('.cache/{}_user2idx.pkl'.format(str(dataset)), 'wb') as f:
@@ -238,7 +237,7 @@ if __name__ == "__main__":
 
     model = DeepwalkClf(embeddings, user_size, mode=mode)
     model = model.cuda()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)    
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.00001)    
     max_index_id = 0
     criterion = nn.BCEWithLogitsLoss()
 

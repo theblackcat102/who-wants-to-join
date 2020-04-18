@@ -1,5 +1,5 @@
 from dataset.aminer import Aminer
-from dataset.meetup import Meetup
+from dataset.meetup import Meetup,locations_id
 import numpy as np
 import pickle
 from sklearn.metrics import f1_score
@@ -65,10 +65,6 @@ def similarity_evaluation(dataset, embeddings, user_node_id, top_k=20, user_size
 
 if __name__ == "__main__":
     import argparse
-    dataset_function_map = {
-        'aminer': Aminer,
-        'meetup': Meetup,
-    }
     parser = argparse.ArgumentParser(
         description='CF rank method for group expansion')
     parser.add_argument('--top-k', type=int, default=5)
@@ -85,9 +81,10 @@ if __name__ == "__main__":
                         help='graphvite embedding pickle')
     args = parser.parse_args()
 
-    DataClass = dataset_function_map[args.dataset]
-
-    dataset = DataClass()
+    if args.dataset == 'aminer':
+        dataset = Aminer()
+    else:
+        dataset = Meetup(city_id=locations_id[args.city])
     data_size = len(dataset)
     train_split, val, test = int(data_size*0.7), int(data_size*0.1), int(data_size*0.2)
     indexes = np.array(list(range(data_size)), dtype=np.long)[train_split+val:]
@@ -101,13 +98,3 @@ if __name__ == "__main__":
     similarity_evaluation(val_dataset, embeddings,
         user_node_id=args.user_node, user_size=args.user_size,
         top_k=args.top_k)
-
-    # Deduplicated embeddings
-    # Deduplicated embeddings
-    # top 10: 0.04704349761787864 0.10442444694413199 0.030360490652954094
-
-    # with open('aminer/aminer_deduplicate_train_edgelist.txt-64-DeepWalk.pkl', 'rb') as f:
-    #     embeddings = pickle.load(f)
-    # # print(embeddings['name2id'])
-
-    # similarity_evaluation(val_dataset, embeddings, user_node_id=0, top_k=5)
