@@ -7,6 +7,8 @@ from dataset.aminer import Aminer
 from dataset.meetup import Meetup, locations_id
 import numpy as np
 import pickle, os, glob
+import os.path as osp
+from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from sklearn.metrics import f1_score
 from src.utils import dict2table, confusion, str2bool
@@ -44,6 +46,40 @@ def reindex_name2id(graphvite_embeddings, dataset):
     return user2idx, idx2user, group2id
 
 
+
+def evaluate_score(test_dataloader, model)
+    B = 64
+    precisions, recalls = [], []
+    model.eval()
+    with torch.no_grad():
+        for batch in test_dataloader:
+            inputs, labels, masked_target, group_id = d
+            inputs, masked_target = inputs.cuda(), masked_target.cuda()
+            B = inputs.shape[0]
+
+            # classification only
+            if mode == 'classifier':
+                pred_index = model.predict(inputs, top_k=args.top_k)
+
+                y_pred = torch.FloatTensor(B, user_size)
+                y_pred.zero_()
+                for batch_idx in range(B):
+                    y_pred[batch_idx, pred_index[batch_idx]] = 1
+            else:
+                y_pred = model.predict_rank(inputs, masked_target, top_k=args.top_k)
+
+            TP, FP, TN, FN = confusion(y_pred, labels)
+            recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
+            precision = 0 if (TP+FP) < 1e-5 else TP/(TP+FP)
+            # print(precision, recall)
+            precisions.append(precision)
+            recalls.append(recall)
+
+    avg_recalls = np.mean(recalls)
+    avg_precisions = np.mean(precisions)
+    f1 = 2*(avg_recalls*avg_precisions)/(avg_recalls+avg_precisions)
+
+    return f1, avg_recalls, avg_precisions
 
 if __name__ == "__main__":
     user_size = 399211
@@ -95,12 +131,17 @@ if __name__ == "__main__":
     # print(len(user2idx), len(idx2user))
     train_split, val, test = int(data_size*0.7), int(data_size*0.1), int(data_size*0.2)
 
-    indexes = np.array(list(range(data_size)), dtype=np.long)[train_split+val:]
-    test_dataset = dataset[list(indexes)]
+    test_indexes = np.array(list(range(data_size)), dtype=np.long)[train_split+val:]
+    test_dataset = dataset[list(test_indexes)]
     test_dataset = DatasetConvert(test_dataset, user_size, user2idx, group2id, max_seq=6)
-    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=args.batch_size, 
+    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=64, 
         num_workers=4, shuffle=False)
 
+    val_indexes = np.array(list(range(data_size)), dtype=np.long)[train_split:train_split+val]
+    val_dataset = dataset[list(val_indexes)]
+    val_dataset = DatasetConvert(val_dataset, user_size, user2idx, group2id, max_seq=6)
+    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=64, 
+        num_workers=4, shuffle=False)
 
     indexes = np.array(list(range(data_size)), dtype=np.long)[:train_split]
     train_dataset = dataset[list(indexes)]
@@ -128,9 +169,24 @@ if __name__ == "__main__":
     max_index_id = 0
     criterion = nn.BCEWithLogitsLoss()
     epochs = args.epochs
+
+    '''
+        Initialize logger : tensorboardX
+    '''
+    writer = None
+    log_path = osp.join(
+        "logs", "deepwalk_rank",
+        'model_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+    os.makedirs(log_path, exist_ok=True)
+    writer = SummaryWriter(log_dir=log_path)
+    save_path = osp.join(log_path, "models")
+    os.makedirs(save_path, exist_ok=True)
+
+    iter_ = 0
     model.train()
     with tqdm(total=epochs, dynamic_ncols=True) as pbar:
         for epoch in range(epochs):
+            model.train()
             for d in dataloader:
                 inputs, labels, masked_target, group_id = d
                 # seq   B x user-size  B x user-size
@@ -149,39 +205,25 @@ if __name__ == "__main__":
                 #   only allow candidate loss
                 loss.backward()
                 optimizer.step()
+                if writer != None:
+                    writer.add_scalar('train/loss', loss.item(), iter_)
+                    iter_ += 1
                 pbar.set_description("loss={:.4f}".format(loss.item()))
-
             pbar.update(1)
 
-    B = 64
-    precisions, recalls = [], []
-    model.eval()
-    with torch.no_grad():
-        for batch in test_dataloader:
-            inputs, labels, masked_target, group_id = d
-            inputs, masked_target = inputs.cuda(), masked_target.cuda()
-            B = inputs.shape[0]
+            f1, avg_recalls, avg_precisions  = evaluate_score(val_dataloader, model)
+            if writer != None:
+                writer.add_scalar('val/f1', f1, epoch)
+                writer.add_scalar('val/recalls', avg_recalls, epoch)
+                writer.add_scalar('val/precision', avg_precisions, epoch)
 
-            # classification only
-            if mode == 'classifier':
-                pred_index = model.predict(inputs, top_k=args.top_k)
 
-                y_pred = torch.FloatTensor(B, user_size)
-                y_pred.zero_()
-                for batch_idx in range(B):
-                    y_pred[batch_idx, pred_index[batch_idx]] = 1
-            else:
-                y_pred = model.predict_rank(inputs, masked_target, top_k=args.top_k)
+    torch.save(model, os.path.join(save_path,'model.pt'))
 
-            TP, FP, TN, FN = confusion(y_pred, labels)
-            recall = 0 if (TP+FN) < 1e-5 else TP/(TP+FN)
-            precision = 0 if (TP+FP) < 1e-5 else TP/(TP+FP)
-            # print(precision, recall)
-            precisions.append(precision)
-            recalls.append(recall)
-
-    avg_recalls = np.mean(recalls)
-    avg_precisions = np.mean(precisions)
-    f1 = 2*(avg_recalls*avg_precisions)/(avg_recalls+avg_precisions)
-
+    f1, avg_recalls, avg_precisions = evaluate_score(test_dataloader, model)
     print( f1, avg_recalls, avg_precisions)
+    if writer != None:
+        writer.add_scalar('test/f1', f1, 0)
+        writer.add_scalar('test/recalls', avg_recalls, 0)
+        writer.add_scalar('test/precision', avg_precisions, 0)
+        writer.flush()

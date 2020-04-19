@@ -311,3 +311,18 @@ Only Aminer dataset for now
 ```
 python -m baseline.deepwalk_clf
 ```
+
+
+## Deepwalk + AGREE
+
+```
+CUDA_VISIBLE_DEVICES=1 python -m baseline.deepwalk_rank --embeddings graphvite_embeddings/aminer_deduplicate_train_edgelist.txt-64-DeepWalk.pkl --dataset aminer --top-k 5 --epochs 20 --neg-sample 5 --lr 0.000005
+CUDA_VISIBLE_DEVICES=1 python -m baseline.deepwalk_rank --embeddings graphvite_embeddings/aminer_deduplicate_train_edgelist.txt-64-DeepWalk.pkl --dataset aminer --top-k 20 --epochs 50 --neg-sample 2 --lr 0.00005
+CUDA_VISIBLE_DEVICES=1 python -m baseline.deepwalk_rank --embeddings graphvite_embeddings/aminer_deduplicate_train_edgelist.txt-64-DeepWalk.pkl --dataset aminer --top-k 10 --epochs 20 --neg-sample 5 --lr 0.000005
+```
+
+
+```
+python -m baseline.deepwalk_agree --top-k 10
+python -m baseline.deepwalk_agree --top-k 5
+```
