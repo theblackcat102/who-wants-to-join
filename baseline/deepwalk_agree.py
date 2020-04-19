@@ -10,7 +10,7 @@ import os.path as osp
 from tqdm import tqdm
 from sklearn.metrics import f1_score
 from src.utils import dict2table, confusion, str2bool
-import random
+import random, json
 from baseline.models.agree import AGREE
 from baseline.dataset import DatasetConvert, AgreeDataset
 from torch.utils.tensorboard import SummaryWriter
@@ -115,6 +115,8 @@ if __name__ == "__main__":
         "logs", "agree",
         'model_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
     os.makedirs(log_path, exist_ok=True)
+    with open(log_path+'/params.json', 'w') as f:
+        json.dump(vars(args), f, indent=4)
     writer = SummaryWriter(log_dir=log_path)
     save_path = osp.join(log_path, "models")
     os.makedirs(save_path, exist_ok=True)

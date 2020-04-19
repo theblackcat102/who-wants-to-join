@@ -12,7 +12,8 @@ from torch.utils.tensorboard import SummaryWriter
 from tqdm import tqdm
 from sklearn.metrics import f1_score
 from src.utils import dict2table, confusion, str2bool
-import random
+import random, json
+from datetime import datetime
 from baseline.models.deepwalk_clf import DeepwalkClf
 from baseline.dataset import DatasetConvert
 
@@ -47,7 +48,7 @@ def reindex_name2id(graphvite_embeddings, dataset):
 
 
 
-def evaluate_score(test_dataloader, model)
+def evaluate_score(test_dataloader, model):
     B = 64
     precisions, recalls = [], []
     model.eval()
@@ -180,6 +181,8 @@ if __name__ == "__main__":
     os.makedirs(log_path, exist_ok=True)
     writer = SummaryWriter(log_dir=log_path)
     save_path = osp.join(log_path, "models")
+    with open(log_path+'/params.json', 'w') as f:
+        json.dump(vars(args), f, indent=4)
     os.makedirs(save_path, exist_ok=True)
 
     iter_ = 0
