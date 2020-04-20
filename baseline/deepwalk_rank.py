@@ -147,7 +147,8 @@ if __name__ == "__main__":
     indexes = np.array(list(range(data_size)), dtype=np.long)[:train_split]
     train_dataset = dataset[list(indexes)]
     dataset = DatasetConvert(train_dataset, user_size, user2idx, group2id, max_seq=6)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, num_workers=4)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, num_workers=4,
+        shuffle=True)
 
     # Setup from embedding files
     embeddings = nn.Embedding(len(user2idx), 64, padding_idx=0)

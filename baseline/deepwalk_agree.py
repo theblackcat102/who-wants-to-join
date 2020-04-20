@@ -140,7 +140,7 @@ if __name__ == "__main__":
     indexes = np.array(list(range(data_size)), dtype=np.long)[:train_split]
     train_dataset = dataset[list(indexes)]
     group_dataset = AgreeDataset(train_dataset, user_size, user2idx, group2id, max_seq=max_seq, mode='group')
-    group_dataloader = torch.utils.data.DataLoader(group_dataset, batch_size=args.batch_size, num_workers=4)
+    group_dataloader = torch.utils.data.DataLoader(group_dataset, batch_size=args.batch_size, num_workers=4, shuffle=True)
     user_dataset = AgreeDataset(train_dataset, user_size, user2idx, group2id, max_seq=max_seq, mode='user')
     user_dataloader = torch.utils.data.DataLoader(group_dataset, batch_size=args.batch_size, num_workers=4, shuffle=True)
 
