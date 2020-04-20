@@ -11,11 +11,13 @@ from torch.autograd import Variable
 
 
 class AGREE(nn.Module):
-    def __init__(self, num_users, num_groups, embedding_dim, drop_ratio):
+    def __init__(self, num_users, num_groups, embedding_dim, drop_ratio, w_group=False):
         super(AGREE, self).__init__()
         self.num_users = num_users
         self.embeddings = nn.Embedding(num_users, embedding_dim)
-        self.group_embed = nn.Embedding(num_groups, embedding_dim)
+        self.w_group = w_group
+        if w_group:
+            self.group_embed = nn.Embedding(num_groups, embedding_dim)
         self.attention = AttentionLayer(2 * embedding_dim, drop_ratio)
         self.predictlayer = PredictLayer(3 * embedding_dim, drop_ratio)
 
@@ -32,7 +34,7 @@ class AGREE(nn.Module):
             assert group.shape[-1] == 1
             assert target_user.shape[-1] == 1
 
-            group_latent = self.group_embed(group).squeeze(1)
+
             target_latent = self.embeddings(target_user)
             
             attention_embeds = torch.cat((user_latent, target_latent.repeat(1, candidate_len, 1) ), dim=-1)
@@ -41,7 +43,10 @@ class AGREE(nn.Module):
             at_wt = self.attention(attention_embeds)
             user_embeds_with_attention = torch.sum(at_wt*user_latent, dim=1)
 
-            g_embeds = user_embeds_with_attention + group_latent
+            g_embeds = user_embeds_with_attention# + group_latent
+            if self.w_group:
+                group_latent = self.group_embed(group).squeeze(1)
+                g_embeds += group_latent
             target_latent = target_latent.squeeze(1)
 
             element_embeds = g_embeds* target_latent  # Element-wise product
@@ -69,9 +74,6 @@ class AGREE(nn.Module):
             user_latent = self.embeddings(input_users[[batch_idx]])
 
 
-
-            group_latent = self.group_embed(group[batch_idx]).squeeze(1)
-
             candidate_index = (candidates[batch_idx] == 1 ).nonzero()
             candidate_size = len(candidate_index)
             
@@ -79,7 +81,6 @@ class AGREE(nn.Module):
 
  
             user_latent = user_latent.repeat(candidate_size, 1, 1) # C x K x D
-            group_latent = group_latent.repeat(candidate_size, 1) # C x D
 
             attention_embeds = torch.cat((user_latent, target_latent.repeat(1, candidate_len, 1) ), dim=-1)
             # print(attention_embeds.shape)
@@ -87,7 +88,12 @@ class AGREE(nn.Module):
             at_wt = self.attention(attention_embeds) # C x K x 1
 
             user_embeds_with_attention = torch.sum(at_wt*user_latent, dim=1)
-            g_embeds = user_embeds_with_attention + group_latent
+            g_embeds = user_embeds_with_attention
+            if self.w_group:
+                group_latent = self.group_embed(group[batch_idx]).squeeze(1)
+                group_latent = group_latent.repeat(candidate_size, 1) # C x D
+                g_embeds += group_latent
+
             target_latent = target_latent.squeeze(1)
             element_embeds = g_embeds* target_latent  # Element-wise product
             new_embeds = torch.cat((element_embeds, g_embeds, target_latent), dim=1)
@@ -124,10 +130,11 @@ class PredictLayer(nn.Module):
     def __init__(self, embedding_dim, drop_ratio=0):
         super(PredictLayer, self).__init__()
         self.linear = nn.Sequential(
+            nn.BatchNorm1d(embedding_dim),
             nn.Linear(embedding_dim, 32),
-            nn.BatchNorm1d(32),
             nn.ReLU(),
             nn.Dropout(drop_ratio),
+            nn.BatchNorm1d(32),
             nn.Linear(32, 1)
         )
 

@@ -19,7 +19,7 @@ from collections import defaultdict
 
 steps_tracker = defaultdict(int)
 
-def train_epoch(dataloader, model, optimizer, writer=None, postfix='user'):
+def train_epoch(args, dataloader, model, optimizer, writer=None, postfix='user'):
     avg_loss, cnt = 0, 0
     # with tqdm(total=len(dataloader), dynamic_ncols=True) as pbar:
     for batch in dataloader:
@@ -31,7 +31,7 @@ def train_epoch(dataloader, model, optimizer, writer=None, postfix='user'):
         pos_predict = model(inputs, group_ids, pos)
         neg_predict = model(inputs, group_ids, neg)
         optimizer.zero_grad()
-        loss = torch.mean((pos_predict - neg_predict -1) **2)
+        loss = torch.mean((pos_predict - neg_predict - args.rank_margin) **2)
         loss.backward()
         optimizer.step()
         avg_loss += loss.item()
@@ -85,13 +85,13 @@ if __name__ == "__main__":
                 help='training epochs')
     parser.add_('--seq-len', type=int, default=6, 
                 help='known users seq len')
-    parser.add_('--neg-sample', type=int, default=5, 
-                help='negative users')
+    parser.add_('--group-embed', type=str2bool, default=False, 
+                help='add group embedding offset')
     parser.add_('--rank-margin', type=float, default=1.0, 
                 help='negative loss margin')
     parser.add_('--batch-size', type=int, default=32,
                 help='known users seq len')
-    parser.add_('--lr', type=float, default=0.00001, 
+    parser.add_('--lr', type=float, default=0.00005, 
                 help='training lr')
     parser.add_('--embeddings', type=str,
                 help='graphvite embedding pickle')
@@ -112,7 +112,7 @@ if __name__ == "__main__":
     writer = None
 
     log_path = osp.join(
-        "logs", "agree",
+        "logs", "agree" if args.group_embed else 'no-group-agree',
         'model_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
     os.makedirs(log_path, exist_ok=True)
     with open(log_path+'/params.json', 'w') as f:
@@ -120,7 +120,7 @@ if __name__ == "__main__":
     writer = SummaryWriter(log_dir=log_path)
     save_path = osp.join(log_path, "models")
     os.makedirs(save_path, exist_ok=True)
-
+    max_seq = 6
 
     user_size = len(idx2user)
     # print(len(user2idx), len(idx2user))
@@ -128,25 +128,24 @@ if __name__ == "__main__":
 
     indexes = np.array(list(range(data_size)), dtype=np.long)[train_split+val:]
     test_dataset = dataset[list(indexes)]
-    test_dataset = DatasetConvert(test_dataset, user_size, user2idx, group2id, max_seq=6)
+    test_dataset = DatasetConvert(test_dataset, user_size, user2idx, group2id, max_seq=max_seq)
     test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=64, num_workers=4, shuffle=False)
 
     indexes = np.array(list(range(data_size)), dtype=np.long)[train_split:train_split+val]
     val_dataset = dataset[list(indexes)]
-    val_dataset = DatasetConvert(val_dataset, user_size, user2idx, group2id, max_seq=6)
+    val_dataset = DatasetConvert(val_dataset, user_size, user2idx, group2id, max_seq=max_seq)
     val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=64, num_workers=4, shuffle=False)
 
 
     indexes = np.array(list(range(data_size)), dtype=np.long)[:train_split]
     train_dataset = dataset[list(indexes)]
-    group_dataset = AgreeDataset(train_dataset, user_size, user2idx, group2id, max_seq=6, mode='group')
+    group_dataset = AgreeDataset(train_dataset, user_size, user2idx, group2id, max_seq=max_seq, mode='group')
     group_dataloader = torch.utils.data.DataLoader(group_dataset, batch_size=args.batch_size, num_workers=4)
-    user_dataset = AgreeDataset(train_dataset, user_size, user2idx, group2id, max_seq=6, mode='user')
+    user_dataset = AgreeDataset(train_dataset, user_size, user2idx, group2id, max_seq=max_seq, mode='user')
     user_dataloader = torch.utils.data.DataLoader(group_dataset, batch_size=args.batch_size, num_workers=4, shuffle=True)
 
-    model = AGREE(len(user2idx), len(group2id), 64, 0.1)
+    model = AGREE(len(user2idx), len(group2id), 64, 0.1, w_group=args.group_embed)
     embeddings = model.embeddings
-    group_embeddings = model.group_embed
     name2id = graphvite_embeddings['name2id']
     vectors = graphvite_embeddings['embedding']
     embed_weight = embeddings.weight.data.numpy()
@@ -163,8 +162,8 @@ if __name__ == "__main__":
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=20, gamma=0.5)
 
     for e in tqdm(range(args.epochs), dynamic_ncols=True):
-        model, optimizer, avg_loss_gp = train_epoch(user_dataloader, model, optimizer, writer, postfix='user')
-        model, optimizer, avg_loss_usr = train_epoch(group_dataloader, model, optimizer, writer, postfix='group')
+        model, optimizer, avg_loss_gp = train_epoch(args, user_dataloader, model, optimizer, writer, postfix='user')
+        model, optimizer, avg_loss_usr = train_epoch(args, group_dataloader, model, optimizer, writer, postfix='group')
         # print('gp: {:.3f}, usr: {:.3f}'.format(avg_loss_usr, avg_loss_usr))
 
         f1, avg_recalls, avg_precisions = evaluate_score(val_dataloader, model)            

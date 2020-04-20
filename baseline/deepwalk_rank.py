@@ -167,6 +167,7 @@ if __name__ == "__main__":
     model = DeepwalkClf(embeddings, user_size, mode=mode)
     model = model.cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)    
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=15, gamma=0.5)
     max_index_id = 0
     criterion = nn.BCEWithLogitsLoss()
     epochs = args.epochs
@@ -213,6 +214,7 @@ if __name__ == "__main__":
                     iter_ += 1
                 pbar.set_description("loss={:.4f}".format(loss.item()))
             pbar.update(1)
+            scheduler.step()
 
             f1, avg_recalls, avg_precisions  = evaluate_score(val_dataloader, model)
             if writer != None:
