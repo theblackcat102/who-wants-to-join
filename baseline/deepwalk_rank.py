@@ -1,5 +1,5 @@
 import torch
-torch.manual_seed(666)
+# torch.manual_seed(666)
 from torch import nn
 import pickle
 import numpy as np
@@ -14,7 +14,7 @@ from sklearn.metrics import f1_score
 from src.utils import dict2table, confusion, str2bool
 import random, json
 from datetime import datetime
-from baseline.models.deepwalk_clf import DeepwalkClf
+from baseline.models.deepwalk_clf import DeepwalkClf, DeepwalkAttnClf
 from baseline.dataset import DatasetConvert
 
 def reindex_name2id(graphvite_embeddings, dataset):
@@ -92,7 +92,7 @@ if __name__ == "__main__":
     parser.add_('--city', type=str, default='SF',
                         choices=['NY', 'SF'])
     parser.add_('--dataset', type=str, default='aminer',
-                    choices=['meetup', 'aminer'])
+                    choices=['meetup', 'aminer']) 
     parser.add_('--user-node', type=int, default=0, 
                 help='integer which user node id is represented in')
     parser.add_('--epochs', type=int, default=5, 
@@ -109,6 +109,8 @@ if __name__ == "__main__":
                 help='training lr')
     parser.add_('--embeddings', type=str,
                 help='graphvite embedding pickle')
+    parser.add_('--model', type=str, default='rank',
+                help='model type', choices=['rank', 'attention'])
 
     args = parser.parse_args()
     if args.dataset == 'aminer':
@@ -165,7 +167,12 @@ if __name__ == "__main__":
     embeddings.weight.data.copy_(torch.from_numpy(embed_weight))
     mode = 'ranking'
 
-    model = DeepwalkClf(embeddings, user_size, mode=mode)
+    if args.model == 'rank':
+        model = DeepwalkClf(embeddings, user_size, mode=mode)
+    else:
+        model = DeepwalkAttnClf(embeddings, user_size, mode=mode)
+        torch.nn.init.zeros_(model.query.weight)
+
     model = model.cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)    
     scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=15, gamma=0.5)
@@ -179,7 +186,7 @@ if __name__ == "__main__":
     writer = None
     log_path = osp.join(
         "logs", "deepwalk_rank",
-        'model_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+        '{}_'.format(args.model)+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
     os.makedirs(log_path, exist_ok=True)
     writer = SummaryWriter(log_dir=log_path)
     save_path = osp.join(log_path, "models")
@@ -223,10 +230,10 @@ if __name__ == "__main__":
                 writer.add_scalar('val/recalls', avg_recalls, epoch)
                 writer.add_scalar('val/precision', avg_precisions, epoch)
 
-
     torch.save(model, os.path.join(save_path,'model.pt'))
 
     f1, avg_recalls, avg_precisions = evaluate_score(test_dataloader, model)
+    print(f'top-{args.top_k}, F1: {f1} R: {avg_recalls} P: {avg_precisions}')
     print( f1, avg_recalls, avg_precisions)
     if writer != None:
         writer.add_scalar('test/f1', f1, 0)

@@ -91,7 +91,7 @@ if __name__ == "__main__":
                 help='negative loss margin')
     parser.add_('--batch-size', type=int, default=32,
                 help='known users seq len')
-    parser.add_('--lr', type=float, default=0.00005, 
+    parser.add_('--lr', type=float, default=0.00001, 
                 help='training lr')
     parser.add_('--embeddings', type=str,
                 help='graphvite embedding pickle')

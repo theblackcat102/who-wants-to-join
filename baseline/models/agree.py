@@ -15,6 +15,7 @@ class AGREE(nn.Module):
         super(AGREE, self).__init__()
         self.num_users = num_users
         self.embeddings = nn.Embedding(num_users, embedding_dim)
+        self.norm = nn.BatchNorm1d(3*embedding_dim)
         self.w_group = w_group
         if w_group:
             self.group_embed = nn.Embedding(num_groups, embedding_dim)
@@ -58,6 +59,7 @@ class AGREE(nn.Module):
             element_embeds = user_latent * target_latent
             new_embeds = torch.cat((element_embeds, user_latent, target_latent), dim=1)
 
+        new_embeds = self.norm(new_embeds)
         y = torch.sigmoid(self.predictlayer(new_embeds))
 
 
@@ -97,6 +99,7 @@ class AGREE(nn.Module):
             target_latent = target_latent.squeeze(1)
             element_embeds = g_embeds* target_latent  # Element-wise product
             new_embeds = torch.cat((element_embeds, g_embeds, target_latent), dim=1)
+            new_embeds = self.norm(new_embeds)
 
             rank = torch.sigmoid(self.predictlayer(new_embeds)).flatten()
 
@@ -111,7 +114,7 @@ class AGREE(nn.Module):
 class AttentionLayer(nn.Module):
     def __init__(self, embedding_dim, drop_ratio=0):
         super(AttentionLayer, self).__init__()
-
+        self.temperature = embedding_dim ** 0.5
         self.linear = nn.Sequential(
             nn.Linear(embedding_dim, 32),
             nn.ReLU(),
@@ -121,7 +124,7 @@ class AttentionLayer(nn.Module):
 
     def forward(self, x):
         # print(x.shape)
-        out = self.linear(x)
+        out = self.linear(x/ self.temperature)
         weight = F.softmax(out, dim=1)
         return weight
 
