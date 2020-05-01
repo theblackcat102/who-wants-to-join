@@ -82,6 +82,13 @@ def evaluate_score(test_dataloader, model):
 
     return f1, avg_recalls, avg_precisions
 
+def get_dataset(args):
+    if args.dataset == 'aminer':
+        dataset = Aminer()
+    else:
+        dataset = Meetup(city_id=locations_id[args.city])
+    return dataset
+
 if __name__ == "__main__":
     user_size = 399211
     import argparse
@@ -125,12 +132,12 @@ if __name__ == "__main__":
         graphvite_embeddings = pickle.load(f)
 
     data_size = len(dataset)
-    if os.path.exists('.cache/{}_user2idx.pkl'.format(str(dataset))):
-        with open('.cache/{}_user2idx.pkl'.format(str(dataset)), 'rb') as f:
+    if os.path.exists('.cache/{}_user2idx_v3.pkl'.format(str(dataset))):
+        with open('.cache/{}_user2idx_v3.pkl'.format(str(dataset)), 'rb') as f:
             user2idx, idx2user, group2id = pickle.load(f)
     else:
         user2idx, idx2user, group2id = reindex_name2id(graphvite_embeddings, dataset)
-        with open('.cache/{}_user2idx.pkl'.format(str(dataset)), 'wb') as f:
+        with open('.cache/{}_user2idx_v3.pkl'.format(str(dataset)), 'wb') as f:
             pickle.dump((user2idx, idx2user, group2id), f)
 
     user_size = len(idx2user)+3
@@ -142,7 +149,7 @@ if __name__ == "__main__":
     dataset = DatasetConvert(train_dataset, user_size, user2idx, group2id, max_seq=args.max_member)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, num_workers=4,
         shuffle=True)
-    dataset = Aminer()
+    dataset = get_dataset(args)
     val_indexes = np.array(list(range(data_size)), dtype=np.long)[train_split:train_split+val]
     val_dataset = dataset[list(val_indexes)]
 
@@ -150,7 +157,7 @@ if __name__ == "__main__":
     val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=64, 
         num_workers=4, shuffle=False)
 
-    dataset = Aminer()
+    dataset = get_dataset(args)
     test_indexes = np.array(list(range(data_size)), dtype=np.long)[train_split+val:]
     test_dataset = dataset[list(test_indexes)]
     test_dataset = DatasetConvert(test_dataset, user_size, user2idx, group2id, max_seq=args.max_member)
