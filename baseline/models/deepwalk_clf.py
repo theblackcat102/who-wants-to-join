@@ -106,7 +106,7 @@ class DeepwalkAttnClf(torch.nn.Module):
         embed_size, embed_dim = embeddings.weight.shape
         self.embeddings = embeddings
         hidden = 128
-        self.temperature = hidden ** 0.333
+        self.temperature = hidden ** 0.5
         self.query = nn.Linear(embed_dim, hidden, bias=False)
         self.key = nn.Linear(embed_dim, hidden, bias=False)
         self.value = nn.Linear(embed_dim, hidden, bias=False)

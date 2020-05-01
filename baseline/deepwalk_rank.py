@@ -137,11 +137,11 @@ if __name__ == "__main__":
     # print(len(user2idx), len(idx2user))
     train_split, val, test = int(data_size*0.7), int(data_size*0.1), int(data_size*0.2)
 
-    test_indexes = np.array(list(range(data_size)), dtype=np.long)[train_split+val:]
-    test_dataset = dataset[list(test_indexes)]
-    test_dataset = DatasetConvert(test_dataset, user_size, user2idx, group2id, max_seq=args.max_member)
-    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=64, 
-        num_workers=4, shuffle=False)
+    indexes = np.array(list(range(data_size)), dtype=np.long)[:train_split]
+    train_dataset = dataset[list(indexes)]
+    dataset = DatasetConvert(train_dataset, user_size, user2idx, group2id, max_seq=args.max_member)
+    dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, num_workers=4,
+        shuffle=True)
 
     val_indexes = np.array(list(range(data_size)), dtype=np.long)[train_split:train_split+val]
     val_dataset = dataset[list(val_indexes)]
@@ -149,11 +149,13 @@ if __name__ == "__main__":
     val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=64, 
         num_workers=4, shuffle=False)
 
-    indexes = np.array(list(range(data_size)), dtype=np.long)[:train_split]
-    train_dataset = dataset[list(indexes)]
-    dataset = DatasetConvert(train_dataset, user_size, user2idx, group2id, max_seq=args.max_member)
-    dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, num_workers=4,
-        shuffle=True)
+
+    test_indexes = np.array(list(range(data_size)), dtype=np.long)[train_split+val:]
+    test_dataset = dataset[list(test_indexes)]
+    test_dataset = DatasetConvert(test_dataset, user_size, user2idx, group2id, max_seq=args.max_member)
+    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=64, 
+        num_workers=4, shuffle=False)
+
 
     # Setup from embedding files
     embeddings = nn.Embedding(len(user2idx), 64, padding_idx=0)
