@@ -3,6 +3,7 @@ from torch import nn
 import pickle
 import numpy as np
 from dataset.aminer import Aminer
+from dataset.meetup import Meetup, locations_id
 import numpy as np
 import pickle, os, glob
 import os.path as osp
