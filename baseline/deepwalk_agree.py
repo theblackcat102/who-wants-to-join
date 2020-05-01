@@ -232,3 +232,5 @@ if __name__ == "__main__":
         writer.flush()
 
     print(f'[{trial_name}] top-{args.top_k}, F1: {f1} R: {avg_recalls} P: {avg_precisions}')
+    with open('agree_results.txt', 'a') as f:
+        f.write(f'[{trial_name}] top-{args.top_k}, F1: {f1} R: {avg_recalls} P: {avg_precisions}\n')

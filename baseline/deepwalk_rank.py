@@ -246,9 +246,11 @@ if __name__ == "__main__":
 
     f1, avg_recalls, avg_precisions = evaluate_score(test_dataloader, model)
     print(f'[{trial_name}] top-{args.top_k}, F1: {f1} R: {avg_recalls} P: {avg_precisions}')
-    print( f1, avg_recalls, avg_precisions)
     if writer != None:
         writer.add_scalar('test/f1', f1, 0)
         writer.add_scalar('test/recalls', avg_recalls, 0)
         writer.add_scalar('test/precision', avg_precisions, 0)
         writer.flush()
+
+    with open('rank_results.txt', 'a') as f:
+        f.write(f'[{trial_name}] top-{args.top_k}, F1: {f1} R: {avg_recalls} P: {avg_precisions}\n')
