@@ -113,7 +113,8 @@ if __name__ == "__main__":
                 help='model type', choices=['rank', 'attention'])
     parser.add_('--name', type=str, default='trial')
     parser.add_('--max-member', type=int, default=6, help='How many know member to select')
-
+    parser.add_('--mode', type=str, default='ranking',
+                help='learning method type', choices=['ranking', 'classifier'])
     args = parser.parse_args()
     if args.dataset == 'aminer':
         dataset = Aminer()
@@ -167,7 +168,7 @@ if __name__ == "__main__":
             embed_weight[user2idx[node_id]] = vector
 
     embeddings.weight.data.copy_(torch.from_numpy(embed_weight))
-    mode = 'ranking'
+    mode = args.mode
 
     if args.model == 'rank':
         model = DeepwalkClf(embeddings, user_size, mode=mode)
