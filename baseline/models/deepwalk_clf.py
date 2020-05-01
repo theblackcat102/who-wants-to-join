@@ -14,10 +14,10 @@ class DeepwalkClf(torch.nn.Module):
             nn.BatchNorm1d(embed_dim),
             nn.ReLU(),
             nn.Dropout(0.1),
-            nn.Linear(embed_dim, 128),
+            nn.Linear(embed_dim, 512),
             nn.ReLU(),
             nn.Dropout(0.1),
-            nn.Linear(128, embed_dim)
+            nn.Linear(512, embed_dim)
         )
 
         if mode == 'classifier':
@@ -79,7 +79,8 @@ class DeepwalkClf(torch.nn.Module):
         x = x.permute(0, 2, 1)
         pooled = self.pool(x)
         pooled = pooled.view(-1, self.embed_dim)
-        predict = self.fc(pooled)
+        predict = self.output(self.fc(pooled))
+
         values, index = torch.topk(predict, k=top_k)
         return index
 
@@ -114,8 +115,8 @@ class DeepwalkAttnClf(torch.nn.Module):
         self.user_size = user_size
         embed_size, embed_dim = embeddings.weight.shape
         self.embeddings = embeddings
-        hidden = 1024
-        self.temperature = hidden ** 0.5
+        hidden = 128
+        self.temperature = hidden ** 0.333
         self.query = nn.Linear(embed_dim, hidden, bias=False)
         self.key = nn.Linear(embed_dim, hidden, bias=False)
         self.value = nn.Linear(embed_dim, hidden, bias=False)
@@ -124,11 +125,12 @@ class DeepwalkAttnClf(torch.nn.Module):
 
         self.pool = nn.AdaptiveAvgPool1d(1)
         self.fc = nn.Sequential(
-            nn.Linear(hidden, 1024),
+            nn.Linear(hidden, 64),
             nn.ReLU(),
             nn.Dropout(0.2),
-            nn.Linear(1024, embed_dim)
+            nn.Linear(64, embed_dim)
         )
+
         self.norm = nn.BatchNorm1d(embed_dim)
 
         if mode == 'classifier':
@@ -193,20 +195,19 @@ class DeepwalkAttnClf(torch.nn.Module):
         return -loss
     
     def forward(self, candidates):
-        x = self.embeddings(candidates)
-        x = x.permute(0, 2, 1)
-        pooled = self.pool(x)
-        pooled = pooled.view(-1, self.embed_dim)
+        x = self.embeddings(candidates)# B x [user size] x D
+        attn, user_latent = self.compute_attention(x, x)
+        user_latents = self.pool(self.fc(user_latent).transpose(1, 2))
+        user_latents = self.norm(user_latents)
 
-        latent = self.fc(pooled)
-        return self.output(latent)
+        return self.output(user_latents)
 
     def predict(self, candidates, top_k=5):
-        x = self.embeddings(candidates)
-        x = x.permute(0, 2, 1)
-        pooled = self.pool(x)
-        pooled = pooled.view(-1, self.embed_dim)
-        predict = self.fc(pooled)
+        x = self.embeddings(candidates)# B x [user size] x D
+        attn, user_latent = self.compute_attention(x, x)
+        user_latents = self.pool(self.fc(user_latent).transpose(1, 2))
+        user_latents = self.norm(user_latents)
+        predict = self.output(user_latents)
         values, index = torch.topk(predict, k=top_k)
         return index
 
@@ -216,6 +217,7 @@ class DeepwalkAttnClf(torch.nn.Module):
         x = self.embeddings(candidates)
         attn, user_latent = self.compute_attention(x, x)
         user_latents = self.pool(self.fc(user_latent).transpose(1, 2))
+        user_latents = self.norm(user_latents)
 
         # x = x.permute(0, 2, 1)
         # pooled = self.pool(x)

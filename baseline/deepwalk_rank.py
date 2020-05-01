@@ -111,6 +111,8 @@ if __name__ == "__main__":
                 help='graphvite embedding pickle')
     parser.add_('--model', type=str, default='rank',
                 help='model type', choices=['rank', 'attention'])
+    parser.add_('--name', type=str, default='trial')
+    parser.add_('--max-member', type=int, default=6, help='How many know member to select')
 
     args = parser.parse_args()
     if args.dataset == 'aminer':
@@ -136,19 +138,19 @@ if __name__ == "__main__":
 
     test_indexes = np.array(list(range(data_size)), dtype=np.long)[train_split+val:]
     test_dataset = dataset[list(test_indexes)]
-    test_dataset = DatasetConvert(test_dataset, user_size, user2idx, group2id, max_seq=6)
+    test_dataset = DatasetConvert(test_dataset, user_size, user2idx, group2id, max_seq=args.max_member)
     test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=64, 
         num_workers=4, shuffle=False)
 
     val_indexes = np.array(list(range(data_size)), dtype=np.long)[train_split:train_split+val]
     val_dataset = dataset[list(val_indexes)]
-    val_dataset = DatasetConvert(val_dataset, user_size, user2idx, group2id, max_seq=6)
+    val_dataset = DatasetConvert(val_dataset, user_size, user2idx, group2id, max_seq=args.max_member)
     val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=64, 
         num_workers=4, shuffle=False)
 
     indexes = np.array(list(range(data_size)), dtype=np.long)[:train_split]
     train_dataset = dataset[list(indexes)]
-    dataset = DatasetConvert(train_dataset, user_size, user2idx, group2id, max_seq=6)
+    dataset = DatasetConvert(train_dataset, user_size, user2idx, group2id, max_seq=args.max_member)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, num_workers=4,
         shuffle=True)
 
@@ -184,9 +186,10 @@ if __name__ == "__main__":
         Initialize logger : tensorboardX
     '''
     writer = None
+    trial_name = '{}_{}_'.format(args.name, args.model)+datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     log_path = osp.join(
         "logs", "deepwalk_rank",
-        '{}_'.format(args.model)+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+        trial_name)
     os.makedirs(log_path, exist_ok=True)
     writer = SummaryWriter(log_dir=log_path)
     save_path = osp.join(log_path, "models")
@@ -233,7 +236,7 @@ if __name__ == "__main__":
     torch.save(model, os.path.join(save_path,'model.pt'))
 
     f1, avg_recalls, avg_precisions = evaluate_score(test_dataloader, model)
-    print(f'top-{args.top_k}, F1: {f1} R: {avg_recalls} P: {avg_precisions}')
+    print(f'[{trial_name}] top-{args.top_k}, F1: {f1} R: {avg_recalls} P: {avg_precisions}')
     print( f1, avg_recalls, avg_precisions)
     if writer != None:
         writer.add_scalar('test/f1', f1, 0)
