@@ -27,13 +27,17 @@ class DeepwalkClf(torch.nn.Module):
         self.log_sigmoid = nn.LogSigmoid()
         self.embed_dim = embed_dim
 
-    def forward_rank(self, candidates, masked_target, target, margin=1, neg_sample=5):
+    def forward_user_latent(self, candidates):
         x = self.embeddings(candidates)
         x = x.permute(0, 2, 1)
         pooled = self.pool(x)
         pooled = pooled.view(-1, self.embed_dim)
 
         latent = self.fc(pooled)
+        return latent
+
+    def forward_rank(self, candidates, masked_target, target, margin=1, neg_sample=5):
+        latent = self.forward_user_latent(candidates)
 
         batch_size = candidates.shape[0]
         total_neg = 0
@@ -66,33 +70,19 @@ class DeepwalkClf(torch.nn.Module):
         return -loss
     
     def forward(self, candidates):
-        x = self.embeddings(candidates)
-        x = x.permute(0, 2, 1)
-        pooled = self.pool(x)
-        pooled = pooled.view(-1, self.embed_dim)
-
-        latent = self.fc(pooled)
+        latent = self.forward_user_latent(candidates)
         return self.output(latent)
 
     def predict(self, candidates, top_k=5):
-        x = self.embeddings(candidates)
-        x = x.permute(0, 2, 1)
-        pooled = self.pool(x)
-        pooled = pooled.view(-1, self.embed_dim)
-        predict = self.output(self.fc(pooled))
+        latent = self.forward_user_latent(candidates)
+        predict = self.output(latent)
 
         values, index = torch.topk(predict, k=top_k)
         return index
 
     def predict_rank(self, candidates, masked_target, top_k=5):
         batch_size = candidates.shape[0]
-
-        x = self.embeddings(candidates)
-        x = x.permute(0, 2, 1)
-        pooled = self.pool(x)
-        pooled = pooled.view(-1, self.embed_dim)
-        latent = self.fc(pooled)
-
+        latent = self.forward_user_latent(candidates)
         y_pred = torch.zeros((batch_size, self.user_size))
         y_pred.zero_()
 
@@ -151,15 +141,18 @@ class DeepwalkAttnClf(torch.nn.Module):
         attn = self.dropout(self.softmax(attn))
         output = torch.matmul(attn, v)
         return attn, output
-
-    def forward_rank(self, candidates, masked_target, target, margin=1, neg_sample=5):
+    def forward_user_latent(self, candidates):
         x = self.embeddings(candidates)# B x [user size] x D
         attn, user_latent = self.compute_attention(x, x)
         user_latents = self.pool(self.fc(user_latent).transpose(1, 2))
         user_latents = self.norm(user_latents)
+        return user_latents
+
+    def forward_rank(self, candidates, masked_target, target, margin=1, neg_sample=5):
         batch_size = candidates.shape[0]
         total_neg = 0
         total_pos = 0
+        user_latents = self.forward_user_latent(candidates)
 
         for batch_idx in range(batch_size):
             user_latent = user_latents[[batch_idx]]
@@ -195,18 +188,11 @@ class DeepwalkAttnClf(torch.nn.Module):
         return -loss
     
     def forward(self, candidates):
-        x = self.embeddings(candidates)# B x [user size] x D
-        attn, user_latent = self.compute_attention(x, x)
-        user_latents = self.pool(self.fc(user_latent).transpose(1, 2))
-        user_latents = self.norm(user_latents)
-
+        user_latents = self.forward_user_latent(candidates)
         return self.output(user_latents)
 
     def predict(self, candidates, top_k=5):
-        x = self.embeddings(candidates)# B x [user size] x D
-        attn, user_latent = self.compute_attention(x, x)
-        user_latents = self.pool(self.fc(user_latent).transpose(1, 2))
-        user_latents = self.norm(user_latents)
+        user_latents = self.forward_user_latent(candidates)
         predict = self.output(user_latents)
         values, index = torch.topk(predict, k=top_k)
         return index
@@ -214,15 +200,7 @@ class DeepwalkAttnClf(torch.nn.Module):
     def predict_rank(self, candidates, masked_target, top_k=5):
         batch_size = candidates.shape[0]
 
-        x = self.embeddings(candidates)
-        attn, user_latent = self.compute_attention(x, x)
-        user_latents = self.pool(self.fc(user_latent).transpose(1, 2))
-        user_latents = self.norm(user_latents)
-
-        # x = x.permute(0, 2, 1)
-        # pooled = self.pool(x)
-        # pooled = pooled.view(-1, self.embed_dim)
-        # latent = self.fc(pooled)
+        user_latents = self.forward_user_latent(candidates)
 
         y_pred = torch.zeros((batch_size, self.user_size))
         y_pred.zero_()

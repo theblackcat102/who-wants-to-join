@@ -22,6 +22,33 @@ class AGREE(nn.Module):
         self.attention = AttentionLayer(2 * embedding_dim, drop_ratio)
         self.predictlayer = PredictLayer(3 * embedding_dim, drop_ratio)
 
+    def forward_group_embed(self, user_latent, group, target_user, candidate_len=-1):
+        
+        if candidate_len < 0:
+            candidate_len = user_latent.shape[-2]
+
+        assert group.shape[-1] == 1
+        assert target_user.shape[-1] == 1
+
+
+        target_latent = self.embeddings(target_user)
+        
+        attention_embeds = torch.cat((user_latent, target_latent.repeat(1, candidate_len, 1) ), dim=-1)
+        # print(attention_embeds.shape)
+
+        at_wt = self.attention(attention_embeds)
+        user_embeds_with_attention = torch.sum(at_wt*user_latent, dim=1)
+
+        g_embeds = user_embeds_with_attention# + group_latent
+        if self.w_group:
+            group_latent = self.group_embed(group).squeeze(1)
+            g_embeds += group_latent
+        target_latent = target_latent.squeeze(1)
+
+        element_embeds = g_embeds* target_latent  # Element-wise product
+        new_embeds = torch.cat((element_embeds, g_embeds, target_latent.squeeze(1)), dim=1)
+        return new_embeds
+
     def forward(self, input_users, group, target_user):
         '''
             Input users: list of known users
@@ -29,30 +56,9 @@ class AGREE(nn.Module):
             Target user: user you wish to decide whether to invite or not
         '''
         if input_users.shape[-1] > 1:
-            user_latent = self.embeddings(input_users)
             candidate_len = input_users.shape[-1]
-
-            assert group.shape[-1] == 1
-            assert target_user.shape[-1] == 1
-
-
-            target_latent = self.embeddings(target_user)
-            
-            attention_embeds = torch.cat((user_latent, target_latent.repeat(1, candidate_len, 1) ), dim=-1)
-            # print(attention_embeds.shape)
-
-            at_wt = self.attention(attention_embeds)
-            user_embeds_with_attention = torch.sum(at_wt*user_latent, dim=1)
-
-            g_embeds = user_embeds_with_attention# + group_latent
-            if self.w_group:
-                group_latent = self.group_embed(group).squeeze(1)
-                g_embeds += group_latent
-            target_latent = target_latent.squeeze(1)
-
-            element_embeds = g_embeds* target_latent  # Element-wise product
-            new_embeds = torch.cat((element_embeds, g_embeds, target_latent.squeeze(1)), dim=1)
-
+            user_latent = self.embeddings(input_users)
+            new_embeds = self.forward_group_embed(user_latent, group, target_user, candidate_len=candidate_len)
         else:
             user_latent = self.embeddings(input_users).squeeze(1)
             target_latent = self.embeddings(target_user).squeeze(1)
@@ -73,33 +79,34 @@ class AGREE(nn.Module):
         candidate_len = input_users.shape[-1]
 
         for batch_idx in range(B):
-            user_latent = self.embeddings(input_users[[batch_idx]])
-
-
             candidate_index = (candidates[batch_idx] == 1 ).nonzero()
             candidate_size = len(candidate_index)
-            
-            target_latent = self.embeddings(candidate_index) # C x D
 
- 
+            user_latent = self.embeddings(input_users[[batch_idx]])
             user_latent = user_latent.repeat(candidate_size, 1, 1) # C x K x D
 
-            attention_embeds = torch.cat((user_latent, target_latent.repeat(1, candidate_len, 1) ), dim=-1)
-            # print(attention_embeds.shape)
+            new_embeds = self.forward_group_embed(user_latent, group[[batch_idx]], 
+                candidate_index, candidate_len)
+            
+            # target_latent = self.embeddings(candidate_index) # C x D
 
-            at_wt = self.attention(attention_embeds) # C x K x 1
 
-            user_embeds_with_attention = torch.sum(at_wt*user_latent, dim=1)
-            g_embeds = user_embeds_with_attention
-            if self.w_group:
-                group_latent = self.group_embed(group[batch_idx]).squeeze(1)
-                group_latent = group_latent.repeat(candidate_size, 1) # C x D
-                g_embeds += group_latent
+            # attention_embeds = torch.cat((user_latent, target_latent.repeat(1, candidate_len, 1) ), dim=-1)
+            # # print(attention_embeds.shape)
 
-            target_latent = target_latent.squeeze(1)
-            element_embeds = g_embeds* target_latent  # Element-wise product
-            new_embeds = torch.cat((element_embeds, g_embeds, target_latent), dim=1)
-            new_embeds = self.norm(new_embeds)
+            # at_wt = self.attention(attention_embeds) # C x K x 1
+
+            # user_embeds_with_attention = torch.sum(at_wt*user_latent, dim=1)
+            # g_embeds = user_embeds_with_attention
+            # if self.w_group:
+            #     group_latent = self.group_embed(group[batch_idx]).squeeze(1)
+            #     group_latent = group_latent.repeat(candidate_size, 1) # C x D
+            #     g_embeds += group_latent
+
+            # target_latent = target_latent.squeeze(1)
+            # element_embeds = g_embeds* target_latent  # Element-wise product
+            # new_embeds = torch.cat((element_embeds, g_embeds, target_latent), dim=1)
+            # new_embeds = self.norm(new_embeds)
 
             rank = torch.sigmoid(self.predictlayer(new_embeds)).flatten()
 

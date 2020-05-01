@@ -200,6 +200,7 @@ if __name__ == "__main__":
 
     iter_ = 0
     model.train()
+    best_model, best_score = model, -1
     with tqdm(total=epochs, dynamic_ncols=True) as pbar:
         for epoch in range(epochs):
             model.train()
@@ -234,7 +235,11 @@ if __name__ == "__main__":
                 writer.add_scalar('val/recalls', avg_recalls, epoch)
                 writer.add_scalar('val/precision', avg_precisions, epoch)
 
-    torch.save(model, os.path.join(save_path,'model.pt'))
+            if f1 > best_score:
+                best_score = f1
+                best_model = model
+
+    torch.save(best_model, os.path.join(save_path,'model.pt'))
 
     f1, avg_recalls, avg_precisions = evaluate_score(test_dataloader, model)
     print(f'[{trial_name}] top-{args.top_k}, F1: {f1} R: {avg_recalls} P: {avg_precisions}')
