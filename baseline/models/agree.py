@@ -9,6 +9,31 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.autograd import Variable
 
+class SelfAttention(nn.Module):
+
+    def __init__(self, embed_dim, hidden):
+        super(SelfAttention, self).__init__()
+        self.temperature = hidden ** 0.5
+        self.query = nn.Linear(embed_dim, hidden, bias=False)
+        self.key = nn.Linear(embed_dim, hidden, bias=False)
+        self.value = nn.Linear(embed_dim, hidden, bias=False)
+        self.dropout = nn.Dropout(0.2)
+        self.softmax = nn.Softmax(dim=-1)
+
+    def forward(self, query, key, value):
+        # 1 x C x D
+        q = self.query(query)
+        # 1 x U x D
+        k = self.key(key)
+        v = self.value(value)
+
+        # 1 x C x U
+        attn = torch.matmul(q / self.temperature, k.transpose(1, 2))
+        attn = self.dropout(self.softmax(attn))
+        output = torch.matmul(attn, v)
+
+        return attn, output
+
 
 class AGREE(nn.Module):
     def __init__(self, num_users, num_groups, embedding_dim, drop_ratio, w_group=False):
@@ -19,7 +44,8 @@ class AGREE(nn.Module):
         self.w_group = w_group
         if w_group:
             self.group_embed = nn.Embedding(num_groups, embedding_dim)
-        self.attention = AttentionLayer(2 * embedding_dim, drop_ratio)
+        # self.attention_ = AttentionLayer(2 * embedding_dim, drop_ratio)
+        self.attention = SelfAttention(embedding_dim, embedding_dim)
         self.predictlayer = PredictLayer(3 * embedding_dim, drop_ratio)
 
     def forward_group_embed(self, user_latent, group, target_user, candidate_len=-1):
@@ -33,12 +59,16 @@ class AGREE(nn.Module):
 
         target_latent = self.embeddings(target_user)
         
+        
         attention_embeds = torch.cat((user_latent, target_latent.repeat(1, candidate_len, 1) ), dim=-1)
         # print(attention_embeds.shape)
 
-        at_wt = self.attention(attention_embeds)
-        user_embeds_with_attention = torch.sum(at_wt*user_latent, dim=1)
-
+        # at_wt = self.attention_(attention_embeds)
+        # user_embeds_with_attention = torch.sum(at_wt*user_latent, dim=1)
+        # print(user_embeds_with_attention.shape)
+        _, user_embeds_with_attention = self.attention( target_latent.repeat(1, candidate_len, 1), user_latent, user_latent )
+        user_embeds_with_attention = torch.sum(user_embeds_with_attention, dim=1)
+        # print(user_embeds_with_attention.shape)
         g_embeds = user_embeds_with_attention# + group_latent
         if self.w_group:
             group_latent = self.group_embed(group).squeeze(1)
@@ -65,7 +95,7 @@ class AGREE(nn.Module):
             element_embeds = user_latent * target_latent
             new_embeds = torch.cat((element_embeds, user_latent, target_latent), dim=1)
 
-        new_embeds = self.norm(new_embeds)
+        # new_embeds = self.norm(new_embeds)
         y = torch.sigmoid(self.predictlayer(new_embeds))
 
 
@@ -165,3 +195,9 @@ if __name__ == "__main__":
     model = AGREE(10, 10, 16, 0.1)
 
     model.predict_rank(known_users, groups, query_mask)
+
+    # query_users = torch.randn(8, 10, 64)
+    # known_users = torch.randn(8, 2, 64)
+    # selfattn = SelfAttention(64, 64)
+    # _, output = selfattn(known_users, query_users, query_users)
+    # print(output.shape)

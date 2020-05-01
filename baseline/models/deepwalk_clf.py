@@ -141,6 +141,7 @@ class DeepwalkAttnClf(torch.nn.Module):
         attn = self.dropout(self.softmax(attn))
         output = torch.matmul(attn, v)
         return attn, output
+
     def forward_user_latent(self, candidates):
         x = self.embeddings(candidates)# B x [user size] x D
         attn, user_latent = self.compute_attention(x, x)

@@ -133,7 +133,7 @@ if __name__ == "__main__":
         with open('.cache/{}_user2idx.pkl'.format(str(dataset)), 'wb') as f:
             pickle.dump((user2idx, idx2user, group2id), f)
 
-    user_size = len(idx2user)
+    user_size = len(idx2user)+3
     # print(len(user2idx), len(idx2user))
     train_split, val, test = int(data_size*0.7), int(data_size*0.1), int(data_size*0.2)
 
@@ -142,14 +142,15 @@ if __name__ == "__main__":
     dataset = DatasetConvert(train_dataset, user_size, user2idx, group2id, max_seq=args.max_member)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=args.batch_size, num_workers=4,
         shuffle=True)
-
+    dataset = Aminer()
     val_indexes = np.array(list(range(data_size)), dtype=np.long)[train_split:train_split+val]
     val_dataset = dataset[list(val_indexes)]
+
     val_dataset = DatasetConvert(val_dataset, user_size, user2idx, group2id, max_seq=args.max_member)
     val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=64, 
         num_workers=4, shuffle=False)
 
-
+    dataset = Aminer()
     test_indexes = np.array(list(range(data_size)), dtype=np.long)[train_split+val:]
     test_dataset = dataset[list(test_indexes)]
     test_dataset = DatasetConvert(test_dataset, user_size, user2idx, group2id, max_seq=args.max_member)

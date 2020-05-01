@@ -18,6 +18,34 @@ from datetime import datetime
 from collections import defaultdict
 
 steps_tracker = defaultdict(int)
+def reindex_name2id(graphvite_embeddings, dataset):
+    # -1 : pad, -2 : UNK
+    idx2user, user2idx = { 0: -1, 1: -2 }, { -1: 0, -2: 1 }
+    name2id = graphvite_embeddings['name2id']
+    for name, id_ in name2id.items():
+        node_type, node_id = name.split('_')
+        node_type, node_id = int(node_type), int(node_id)
+
+        if node_type == 0 and node_id not in user2idx:
+            idx = len(idx2user)
+            idx2user[idx] = node_id
+            user2idx[node_id] = idx
+
+    group2id = {-2: 0 }
+
+    for data in dataset:
+        for node in data.x[ data.x[:, 2] == 0]:
+            if int(node[0]) not in user2idx:
+                idx = len(idx2user)
+                idx2user[idx] = int(node[0])
+                user2idx[int(node[0])] = idx
+        if hasattr(data, 'titleid'):
+            group2id[int(data.titleid[0])] = len(group2id)
+        else:
+            group_id = data.x[ data.x[:, -1] == 2, :][0][2]
+            group2id[int(group_id)] = len(group2id)
+
+    return user2idx, idx2user, group2id
 
 def train_epoch(args, dataloader, model, optimizer, writer=None, postfix='user'):
     avg_loss, cnt = 0, 0
@@ -68,6 +96,14 @@ def evaluate_score(test_dataloader, model):
     f1 = 2*(avg_recalls*avg_precisions)/(avg_recalls+avg_precisions)
     return f1, avg_recalls, avg_precisions
 
+def get_dataset(args):
+    if args.dataset == 'aminer':
+        dataset = Aminer()
+    else:
+        dataset = Meetup(city_id=locations_id[args.city])
+    return dataset
+
+
 if __name__ == "__main__":
     user_size = 399211
     import argparse
@@ -97,23 +133,27 @@ if __name__ == "__main__":
                 help='graphvite embedding pickle')
     args = parser.parse_args()
 
-    with open('graphvite_embeddings/aminer_deduplicate_train_edgelist.txt-64-DeepWalk.pkl', 'rb') as f:
+    # with open('graphvite_embeddings/aminer_init_social_network.edgelist-64-DeepWalk.pkl', 'rb') as f:
+    #     graphvite_embeddings = pickle.load(f)
+    with open(args.embeddings, 'rb') as f:
         graphvite_embeddings = pickle.load(f)
 
-    dataset = Aminer()
+    dataset = get_dataset(args)
+
     data_size = len(dataset)
-    if os.path.exists('.cache/{}_user2idx.pkl'.format(str(dataset))):
-        with open('.cache/{}_user2idx.pkl'.format(str(dataset)), 'rb') as f:
+    if os.path.exists('.cache/{}_user2idx_v2.pkl'.format(str(dataset))):
+        with open('.cache/{}_user2idx_v2.pkl'.format(str(dataset)), 'rb') as f:
             user2idx, idx2user, group2id = pickle.load(f)
     else:
         user2idx, idx2user, group2id = reindex_name2id(graphvite_embeddings, dataset)
-        with open('.cache/{}_user2idx.pkl'.format(str(dataset)), 'wb') as f:
+        with open('.cache/{}_user2idx_v2.pkl'.format(str(dataset)), 'wb') as f:
             pickle.dump((user2idx, idx2user, group2id), f)
     writer = None
 
+    trial_name = f'{args.dataset}_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S")
     log_path = osp.join(
-        "logs", "agree" if args.group_embed else 'no-group-agree',
-        'model_'+datetime.now().strftime("%Y-%m-%d-%H-%M-%S"))
+        "logs", "agree" if args.group_embed else 'no-group-agree', trial_name)
+
     os.makedirs(log_path, exist_ok=True)
     with open(log_path+'/params.json', 'w') as f:
         json.dump(vars(args), f, indent=4)
@@ -126,23 +166,28 @@ if __name__ == "__main__":
     # print(len(user2idx), len(idx2user))
     train_split, val, test = int(data_size*0.7), int(data_size*0.1), int(data_size*0.2)
 
-    indexes = np.array(list(range(data_size)), dtype=np.long)[train_split+val:]
-    test_dataset = dataset[list(indexes)]
-    test_dataset = DatasetConvert(test_dataset, user_size, user2idx, group2id, max_seq=max_seq)
-    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=64, num_workers=4, shuffle=False)
-
-    indexes = np.array(list(range(data_size)), dtype=np.long)[train_split:train_split+val]
-    val_dataset = dataset[list(indexes)]
-    val_dataset = DatasetConvert(val_dataset, user_size, user2idx, group2id, max_seq=max_seq)
-    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=64, num_workers=4, shuffle=False)
-
-
     indexes = np.array(list(range(data_size)), dtype=np.long)[:train_split]
+    dataset = get_dataset(args)
     train_dataset = dataset[list(indexes)]
     group_dataset = AgreeDataset(train_dataset, user_size, user2idx, group2id, max_seq=max_seq, mode='group')
     group_dataloader = torch.utils.data.DataLoader(group_dataset, batch_size=args.batch_size, num_workers=4, shuffle=True)
     user_dataset = AgreeDataset(train_dataset, user_size, user2idx, group2id, max_seq=max_seq, mode='user')
     user_dataloader = torch.utils.data.DataLoader(group_dataset, batch_size=args.batch_size, num_workers=4, shuffle=True)
+
+
+    indexes = np.array(list(range(data_size)), dtype=np.long)[train_split+val:]
+    dataset = get_dataset(args)
+    test_dataset = dataset[list(indexes)]
+    test_dataset = DatasetConvert(test_dataset, user_size, user2idx, group2id, max_seq=max_seq)
+    test_dataloader = torch.utils.data.DataLoader(test_dataset, batch_size=64, num_workers=4, shuffle=False)
+
+    indexes = np.array(list(range(data_size)), dtype=np.long)[train_split:train_split+val]
+    dataset = get_dataset(args)
+    val_dataset = dataset[list(indexes)]
+    val_dataset = DatasetConvert(val_dataset, user_size, user2idx, group2id, max_seq=max_seq)
+    val_dataloader = torch.utils.data.DataLoader(val_dataset, batch_size=64, num_workers=4, shuffle=False)
+
+
 
     model = AGREE(len(user2idx), len(group2id), 64, 0.1, w_group=args.group_embed)
     embeddings = model.embeddings
@@ -185,4 +230,4 @@ if __name__ == "__main__":
         writer.add_scalar('test/precision', avg_precisions, 0)
         writer.flush()
 
-    print( f1, avg_recalls, avg_precisions)
+    print(f'[{trial_name}] top-{args.top_k}, F1: {f1} R: {avg_recalls} P: {avg_precisions}')
